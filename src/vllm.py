@@ -24,6 +24,12 @@ Solve the following math problem step by step. The last line of your response sh
 
 Remember to put your answer on its own line after "Answer:".
 """.strip(),
+    "extraction": """
+Please extract the final answer from the following response. The answer should be put inside \\boxed{{}}. 
+
+Response:
+{response}
+""".strip(),
 }
 
 
@@ -321,8 +327,8 @@ async def generate_responses(
     output_file = dataset_dir / "outputs.jsonl"
     dataset_dir.mkdir(parents=True, exist_ok=True)
 
-    with StageContext(logger, f"C.1[{dataset_name}]", "Reading cached output"):
-        generated_results: List[Dict[str, Any]] = []
+    # Pass 1: Original Generation
+    with StageContext(logger, f"C.1[{dataset_name}]", "Reading cached output (Pass 1)"):
         cache: Set[Tuple[int, int]] = set()
 
         if output_file.exists():
@@ -340,20 +346,16 @@ async def generate_responses(
                             and data["response"] != ""
                             and int(data["rollout_id"]) < rollout_n
                         ):
-                            generated_results.append(data)
                             cache.add((data["problem_id"], data["rollout_id"]))
                     except json.JSONDecodeError:
                         logger.warning("Invalid JSON line in outputs.jsonl, skipped.")
 
-        logger.info("Loaded cache entries: %d", len(generated_results))
+        logger.info("Loaded cache entries for generation: %d", len(cache))
 
     with StageContext(logger, f"C.2[{dataset_name}]", "Preparing generation tasks"):
         ds = load_dataset_from_hf(dataset_name, args.cache_dir)
-        # max_concurrent_per_dp and semaphores are now handled externally and passed in
-
         tasks_to_process: List[Dict[str, Any]] = []
         ports_cycle = len(ports)
-
         prompt_template = PROMPT_TEMPLATES[args.prompt_format]
 
         for idx, sample in enumerate(ds):
@@ -361,7 +363,6 @@ async def generate_responses(
             for rollout_id in range(rollout_n):
                 if (idx, rollout_id) in cache:
                     continue
-                # port_idx = idx % ports_cycle
                 port_idx = (idx * rollout_n + rollout_id) % ports_cycle
                 tasks_to_process.append(
                     {
@@ -373,30 +374,130 @@ async def generate_responses(
                 )
 
         logger.info("New requests to generate: %d", len(tasks_to_process))
-
         visualizer = ProgressVisualizer(
-            dataset_dir / "process.txt", len(ds), rollout_n, cache
+            dataset_dir / "process_gen.txt", len(ds), rollout_n, cache
         )
 
-        if not tasks_to_process:
-            logger.info("All requests exist in cache, no generation needed.")
-            visualizer.cleanup()
-            return
-
-    with StageContext(logger, f"C.3[{dataset_name}]", "Parallel Generation"):
-        await run_batch_inference(
-            tasks=tasks_to_process,
-            ports=ports,
-            semaphores=semaphores,
-            args=args,
-            logger=logger,
-            output_file=output_file,
-            visualizer=visualizer,
-        )
+        if tasks_to_process:
+            with StageContext(logger, f"C.3[{dataset_name}]", "Parallel Generation"):
+                await run_batch_inference(
+                    tasks=tasks_to_process,
+                    ports=ports,
+                    semaphores=semaphores,
+                    args=args,
+                    logger=logger,
+                    output_file=output_file,
+                    visualizer=visualizer,
+                )
+        else:
+            logger.info("All generation requests exist in cache.")
         visualizer.cleanup()
 
-        logger.info(
-            "Dataset %s generation complete, results saved to %s",
-            dataset_name,
-            output_file,
-        )
+    # Pass 2: LLM-as-a-judge Extraction (Optional)
+    if args.llm_judge_extract:
+        judge_file = dataset_dir / "judge.jsonl"
+        with StageContext(logger, f"C.4[{dataset_name}]", "Reading cached output (Pass 2: Extraction)"):
+            extraction_cache: Set[Tuple[int, int]] = set()
+            responses_to_extract: List[Dict[str, Any]] = []
+
+            # We need to load the output file to get responses
+            all_records: Dict[Tuple[int, int], Dict[str, Any]] = {}
+            if output_file.exists():
+                with output_file.open("r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            data = json.loads(line)
+                            pid, rid = data.get("problem_id"), data.get("rollout_id")
+                            if pid is None or rid is None:
+                                continue
+                            if (pid, rid) not in all_records:
+                                all_records[(pid, rid)] = data
+                            else:
+                                all_records[(pid, rid)].update(data)
+                        except json.JSONDecodeError:
+                            pass
+
+            # Load existing judge cache
+            if judge_file.exists():
+                with judge_file.open("r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            data = json.loads(line)
+                            pid, rid = data.get("problem_id"), data.get("rollout_id")
+                            if pid is not None and rid is not None:
+                                extraction_cache.add((pid, rid))
+                        except json.JSONDecodeError:
+                            pass
+
+            for (pid, rid), data in all_records.items():
+                if (pid, rid) in extraction_cache:
+                    continue
+                if "response" in data and data["response"]:
+                    responses_to_extract.append(data)
+
+            logger.info("Loaded judge cache entries: %d", len(extraction_cache))
+            logger.info("New requests to extract with judge: %d", len(responses_to_extract))
+
+        if responses_to_extract:
+            with StageContext(logger, f"C.5[{dataset_name}]", "LLM-as-a-judge Answer Extraction"):
+                from src.grader import extract_answer
+                extraction_tasks: List[Dict[str, Any]] = []
+                extract_template = PROMPT_TEMPLATES["extraction"]
+                ports_cycle = len(ports)
+
+                for i, record in enumerate(responses_to_extract):
+                    pid, rid = record["problem_id"], record["rollout_id"]
+                    prompt = extract_template.format(response=record["response"])
+                    port_idx = (pid * rollout_n + rid) % ports_cycle
+                    
+                    task = {
+                        "problem_id": pid,
+                        "rollout_id": rid,
+                        "prompt": prompt,
+                        "port_idx": port_idx,
+                    }
+                    extraction_tasks.append(task)
+
+                visualizer_extract = ProgressVisualizer(
+                    dataset_dir / "process_extract.txt", len(ds), rollout_n, extraction_cache
+                )
+
+                results = await run_batch_inference(
+                    tasks=extraction_tasks,
+                    ports=ports,
+                    semaphores=semaphores,
+                    args=args,
+                    logger=logger,
+                    output_file=None,
+                    visualizer=visualizer_extract,
+                )
+
+                # Now save to judge.jsonl
+                with judge_file.open("a", encoding="utf-8") as f:
+                    for res in results:
+                        llm_output = res["response"]
+                        # Extract content inside \boxed{}
+                        boxed_content = extract_answer(llm_output)
+                        record = {
+                            "problem_id": res["problem_id"],
+                            "rollout_id": res["rollout_id"],
+                            "judge_response": llm_output,
+                            "extracted_response": boxed_content,
+                        }
+                        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+                
+                visualizer_extract.cleanup()
+        else:
+            logger.info("All judge extraction requests exist in cache.")
+
+    logger.info(
+        "Dataset %s processing complete, results saved to %s",
+        dataset_name,
+        output_file,
+    )

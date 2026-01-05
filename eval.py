@@ -137,6 +137,11 @@ def parse_args() -> Tuple[argparse.Namespace, List[str], List[str]]:
         default=None,
         help="Max number of concurrent requests per data parallel (DP) vLLM backend.",
     )
+    parser.add_argument(
+        "--llm-judge-extract",
+        action="store_true",
+        help="Whether to use LLM-as-a-judge to extract answers from responses.",
+    )
 
     args, unknown = parser.parse_known_args()
 
@@ -169,6 +174,10 @@ def evaluate_dataset_results(
             raise ValueError(f"outputs.jsonl not found, cannot evaluate: {dataset_name}")
 
         outputs_map: Dict[int, List[Tuple[int, str]]] = {}
+        # We need to merge records for the same (problem_id, rollout_id)
+        raw_data: Dict[Tuple[int, int], Dict[str, Any]] = {}
+
+        # 1. Load original outputs
         with outputs_file.open("r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
@@ -176,12 +185,43 @@ def evaluate_dataset_results(
                     continue
                 try:
                     d = json.loads(line)
-                    if "problem_id" in d and "rollout_id" in d:
-                        outputs_map.setdefault(d["problem_id"], []).append(
-                            (d["rollout_id"], d.get("response", ""))
-                        )
+                    pid, rid = d.get("problem_id"), d.get("rollout_id")
+                    if pid is None or rid is None:
+                        continue
+                    if (pid, rid) not in raw_data:
+                        raw_data[(pid, rid)] = d
+                    else:
+                        raw_data[(pid, rid)].update(d)
                 except json.JSONDecodeError:
                     pass
+
+        # 2. Load judge extractions if they exist
+        judge_file = dataset_dir / "judge.jsonl"
+        if judge_file.exists():
+            with judge_file.open("r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        d = json.loads(line)
+                        pid, rid = d.get("problem_id"), d.get("rollout_id")
+                        if pid is None or rid is None:
+                            continue
+                        if (pid, rid) in raw_data:
+                            raw_data[(pid, rid)].update(d)
+                        else:
+                            raw_data[(pid, rid)] = d
+                    except json.JSONDecodeError:
+                        pass
+
+        for (pid, rid), data in raw_data.items():
+            # Prioritize extracted_response from judge if it exists
+            final_resp = data.get("extracted_response")
+            if not final_resp:
+                final_resp = data.get("response", "")
+            
+            outputs_map.setdefault(pid, []).append((rid, final_resp))
 
     with StageContext(logger, f"D.2[{dataset_name}]", "Loading original dataset"):
         ds = load_dataset_from_hf(dataset_name, args.cache_dir)

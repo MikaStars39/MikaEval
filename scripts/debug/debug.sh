@@ -8,8 +8,8 @@ ulimit -n 65535
 # export VLLM_LOGGING_LEVEL="DEBUG"
 
 PROJECT_DIR="."
-BASE_MODEL_PATH="/mnt/llm-train/users/explore-train/zhangyuqi60/Nomerge/ms-swift/hf_outputs/qwen3-30b-s3"
-
+# BASE_MODEL_PATH="/mnt/llm-train/users/explore-train/zhangyuqi60/Nomerge/ms-swift/hf_outputs/qwen3-30b-s3"
+BASE_MODEL_PATH="/mnt/llm-train/users/explore-train/qingyu/MikaEval/.cache/Qwen3-4B-Instruct-2507" # for judge
 # DATASET="aime2024@512,aime2025@512,amc2023@32,math500@8,minerva@8,hmmt2025@32"
 DATASET="aime2024@2" # debug
 
@@ -63,6 +63,7 @@ function eval_model_with_adapter() {
     --max-num-request "${MAX_NUM_REQUEST}" \
     --dtype "${DTYPE}" \
     --mode "${MODE}" \
+    --llm-judge-extract \
     ${CACHE_DIR:+--cache-dir "${CACHE_DIR}"} 2>&1 | tee "${RESULT_DIR}/eval.log";
 }
 
