@@ -313,12 +313,12 @@ async def generate_responses(
     semaphores: Dict[int, asyncio.Semaphore],
 ) -> None:
     """
-    Asynchronously generate responses and save to output.jsonl.
-    Implementation: Read existing output.jsonl to build cache, only generate missing entries.
-    Generated results are appended to output.jsonl in real-time.
+    Asynchronously generate responses and save to outputs.jsonl.
+    Implementation: Read existing outputs.jsonl to build cache, only generate missing entries.
+    Generated results are appended to outputs.jsonl in real-time.
     """
     dataset_dir = Path(args.result_dir) / dataset_name
-    output_file = dataset_dir / "output.jsonl"
+    output_file = dataset_dir / "outputs.jsonl"
     dataset_dir.mkdir(parents=True, exist_ok=True)
 
     with StageContext(logger, f"C.1[{dataset_name}]", "Reading cached output"):
@@ -343,7 +343,7 @@ async def generate_responses(
                             generated_results.append(data)
                             cache.add((data["problem_id"], data["rollout_id"]))
                     except json.JSONDecodeError:
-                        logger.warning("Invalid JSON line in output.jsonl, skipped.")
+                        logger.warning("Invalid JSON line in outputs.jsonl, skipped.")
 
         logger.info("Loaded cache entries: %d", len(generated_results))
 

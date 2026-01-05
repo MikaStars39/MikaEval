@@ -122,7 +122,7 @@ class StreamToLogger:
 
 def setup_logging(result_dir: Path) -> logging.Logger:
     result_dir.mkdir(parents=True, exist_ok=True)
-    latest_log_path = result_dir / "latest_run.log"
+    eval_log_path = result_dir / "eval.log"
     log_path = result_dir / "logs" / f"{time.strftime('%Y-%m-%d_%H-%M-%S')}.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -133,14 +133,14 @@ def setup_logging(result_dir: Path) -> logging.Logger:
     formatter = logging.Formatter("%(asctime)s | %(levelname)s | %(message)s")
     file_handler = logging.FileHandler(log_path, mode="w", encoding="utf-8")
     file_handler.setFormatter(formatter)
-    latest_file_handler = logging.FileHandler(
-        latest_log_path, mode="w", encoding="utf-8"
+    eval_file_handler = logging.FileHandler(
+        eval_log_path, mode="w", encoding="utf-8"
     )
-    latest_file_handler.setFormatter(formatter)
+    eval_file_handler.setFormatter(formatter)
     console_handler = logging.StreamHandler(sys.__stdout__)
     console_handler.setFormatter(formatter)
     logging.root.addHandler(file_handler)
-    logging.root.addHandler(latest_file_handler)
+    logging.root.addHandler(eval_file_handler)
     logging.root.addHandler(console_handler)
 
     stdout_logger = logging.getLogger("stdout")
