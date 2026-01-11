@@ -158,19 +158,18 @@ def evaluate_dataset_results(
     logger: logging.Logger,
 ) -> Dict[str, Dict[int, float]]:
     """
-    Evaluation stage: Read output.jsonl, score and generate result.jsonl, return stats metrics.
+    Evaluation stage: Read outputs.jsonl, score and generate result.jsonl, return stats metrics.
     """
     dataset_dir = Path(args.result_dir) / dataset_name
-    output_file = dataset_dir / "output.jsonl"
+    outputs_file = dataset_dir / "outputs.jsonl"
     result_file = dataset_dir / "result.jsonl"
-    result_json_file = dataset_dir / "result.json"
 
     with StageContext(logger, f"D.1[{dataset_name}]", "Loading model output"):
-        if not output_file.exists():
-            raise ValueError(f"output.jsonl not found, cannot evaluate: {dataset_name}")
+        if not outputs_file.exists():
+            raise ValueError(f"outputs.jsonl not found, cannot evaluate: {dataset_name}")
 
         outputs_map: Dict[int, List[Tuple[int, str]]] = {}
-        with output_file.open("r", encoding="utf-8") as f:
+        with outputs_file.open("r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if not line:
@@ -265,7 +264,7 @@ def evaluate_dataset_results(
                     }
                 )
 
-    with StageContext(logger, f"D.4[{dataset_name}]", "Summarizing and writing files"):
+    with StageContext(logger, f"D.4[{dataset_name}]", "Summarizing results"):
         if raw_stats_list:
             summary = {
                 "avg": statistics.mean(x["avg"] for x in raw_stats_list),
@@ -285,26 +284,11 @@ def evaluate_dataset_results(
                 "format_score_avg": 0.0,
             }
 
-        final_json = {
-            "data_source": dataset_name,
-            "rollout_n": rollout_n,
-            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-            "summary": summary,
-            "raw": raw_stats_list,
-            "response_example": [
-                outputs_map[0][0] if outputs_map else [],
-            ],
-        }
-
-        with result_json_file.open("w", encoding="utf-8") as f:
-            json.dump(final_json, f, indent=2, ensure_ascii=False)
-
         logger.info(
-            "Evaluation complete, results written to %s and %s",
+            "Evaluation complete, results written to %s",
             result_file,
-            result_json_file,
         )
-
+        logger.info("Summary Statistics: %s", summary)
 
 async def main() -> None:
     args, vllm_args, leftover = parse_args()
@@ -414,7 +398,6 @@ async def main() -> None:
                     logger.warning("Failed to delete merged model directory: %s", e)
     else:
         logger.info("All evaluation tasks completed.")
-
 
 if __name__ == "__main__":
     asyncio.run(main())
