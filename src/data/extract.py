@@ -17,8 +17,9 @@ def prepare_extraction_data(
     """
     if prompt_template is None:
         prompt_template = (
-            "Extract the final concise answer from the following response. "
-            "If the answer is a number or a simple expression, provide it directly. \n\n"
+            "Extract the final concise answer (e.g., a number, a simple expression, or a choice) "
+            "from the following response. If the answer is inside \\boxed{{}}, extract the content inside it. "
+            "Provide only the final answer value without any explanation.\n\n"
             "Response: {raw_res}\n\n"
             "Final Answer:"
         )
@@ -29,7 +30,7 @@ def prepare_extraction_data(
                 continue
             data = json.loads(line)
             # Use 'response' as the key for the model generated text
-            raw_res = data.get("response", "")
+            raw_res = data.pop("response", "") # Remove old response to avoid triple redundancy
             data["raw_res"] = raw_res  # Keep original response for reference
             data["prompt"] = prompt_template.format(raw_res=raw_res)
             f_out.write(json.dumps(data, ensure_ascii=False) + "\n")

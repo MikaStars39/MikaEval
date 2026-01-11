@@ -1,68 +1,81 @@
-# logging_utils.py
 import logging
 import sys
 import time
-import torch
-import gc
-import argparse
-
-from typing import Any, Dict, Tuple, Set
-from transformers import AutoModelForCausalLM, AutoTokenizer
+import json
+from typing import Any, Dict, List
 from pathlib import Path
-from datasets import load_dataset
-import asyncio
-
-
-class StreamToLogger:
-    """Redirect stdout/stderr to logger to ensure output is recorded in both file and console."""
-
-    def __init__(self, logger: logging.Logger, level: int) -> None:
-        self.logger = logger
-        self.level = level
-        self._buffer = ""
-
-    def write(self, buffer: str) -> None:
-        self._buffer += buffer
-        while "\n" in self._buffer:
-            line, self._buffer = self._buffer.split("\n", 1)
-            self.logger.log(self.level, line)
-
-    def flush(self) -> None:
-        if self._buffer:
-            self.logger.log(self.level, self._buffer)
-            self._buffer = ""
-
 
 def setup_logging(result_dir: Path) -> logging.Logger:
+    """Setup logging to both console and file."""
     result_dir.mkdir(parents=True, exist_ok=True)
-    eval_log_path = result_dir / "eval.log"
-    log_path = result_dir / "logs" / f"{time.strftime('%Y-%m-%d_%H-%M-%S')}.log"
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-
+    log_path = result_dir / "eval.log"
+    
+    # Remove existing handlers
     for handler in logging.root.handlers[:]:
         logging.root.removeHandler(handler)
 
-    logging.root.setLevel(logging.INFO)
-    formatter = logging.Formatter("%(asctime)s | %(levelname)s | %(message)s")
-    file_handler = logging.FileHandler(log_path, mode="w", encoding="utf-8")
-    file_handler.setFormatter(formatter)
-    eval_file_handler = logging.FileHandler(
-        eval_log_path, mode="w", encoding="utf-8"
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s | %(levelname)s | %(message)s",
+        handlers=[
+            logging.FileHandler(log_path, mode="w", encoding="utf-8"),
+            logging.StreamHandler(sys.stdout)
+        ]
     )
-    eval_file_handler.setFormatter(formatter)
-    console_handler = logging.StreamHandler(sys.__stdout__)
-    console_handler.setFormatter(formatter)
-    logging.root.addHandler(file_handler)
-    logging.root.addHandler(eval_file_handler)
-    logging.root.addHandler(console_handler)
+    return logging.getLogger("eval")
 
-    stdout_logger = logging.getLogger("stdout")
-    stdout_logger.setLevel(logging.INFO)
-    stdout_logger.propagate = True
-    stderr_logger = logging.getLogger("stderr")
-    stderr_logger.setLevel(logging.ERROR)
-    stderr_logger.propagate = True
-    sys.stdout = StreamToLogger(stdout_logger, logging.INFO)
-    sys.stderr = StreamToLogger(stderr_logger, logging.ERROR)
+def calculate_and_print_metrics(eval_output_file: Path, cache_dir: str = None):
+    """Calculate and print Avg@K and Pass@K metrics."""
+    from src.reward.reward import get_reward, extract_answer
+    
+    if not eval_output_file.exists():
+        logging.error(f"Eval results not found: {eval_output_file}")
+        return
 
-    return logging.getLogger("eval_all")
+    logging.info(f"Calculating metrics from {eval_output_file}...")
+    
+    # dataset_metrics = { dataset_name: { question_id: [is_correct_float, ...] } }
+    dataset_metrics = {}
+    
+    with open(eval_output_file, "r", encoding="utf-8") as f:
+        for line in f:
+            if not line.strip(): continue
+            item = json.loads(line)
+            
+            ds_name = item.get("source", "unknown")
+            q_id = item.get("question_id", "unknown")
+            label = item.get("label", "")
+            
+            # Extract clean answer from LLM extraction response
+            raw_eval_res = item.get("response", "")
+            pred_ans = extract_answer(raw_eval_res)
+            
+            # Select reward type
+            reward_type = "f1" if ds_name == "gpqa_diamond" else "dapo"
+            
+            # Compute score
+            score = float(get_reward(pred_ans, label, reward_type))
+            
+            if ds_name not in dataset_metrics:
+                dataset_metrics[ds_name] = {}
+            if q_id not in dataset_metrics[ds_name]:
+                dataset_metrics[ds_name][q_id] = []
+            dataset_metrics[ds_name][q_id].append(score)
+
+    # Print Report
+    print("\n" + "="*60)
+    print(f"{'Dataset':<25} | {'Avg@K':<12} | {'Pass@K':<12}")
+    print("-" * 60)
+    
+    for ds_name, q_map in dataset_metrics.items():
+        all_scores = []
+        pass_at_k_scores = []
+        for q_id, scores in q_map.items():
+            all_scores.extend(scores)
+            # Pass@k is 1 if any sample is correct
+            pass_at_k_scores.append(1.0 if any(s > 0 for s in scores) else 0.0)
+        
+        avg_k = sum(all_scores) / len(all_scores) if all_scores else 0
+        pass_k = sum(pass_at_k_scores) / len(pass_at_k_scores) if pass_at_k_scores else 0
+        print(f"{ds_name:<25} | {avg_k:>11.2%} | {pass_k:>11.2%}")
+    print("="*60 + "\n")

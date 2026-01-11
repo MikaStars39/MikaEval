@@ -39,6 +39,14 @@ def get_question_text(row):
             return row[key]
     raise KeyError(f"Could not find a question column in row: {row.keys()}")
 
+def get_answer_text(row):
+    """Identify the answer/solution column in different dataset schemas."""
+    # List of common column names for the answer/label
+    for key in ["answer", "solution", "label", "target", "correct_answer", "gold_answer"]:
+        if key in row:
+            return str(row[key])
+    return ""  # Fallback if no answer column found
+
 def prepare_pass_at_k_jsonl(config_str: str, output_file: str, cache_dir: str = None):
     """
     Parses config_str (e.g., 'aime2024@32,math500@4') and generates a JSONL file 
@@ -62,6 +70,7 @@ def prepare_pass_at_k_jsonl(config_str: str, output_file: str, cache_dir: str = 
             # 3. Iterate through rows and repeat k times
             for idx, row in enumerate(tqdm(data, desc=f"Loading {ds_name}")):
                 question = get_question_text(row)
+                answer = get_answer_text(row)
                 
                 for sample_idx in range(k):
                     # Create a unique ID for each attempt
@@ -70,8 +79,10 @@ def prepare_pass_at_k_jsonl(config_str: str, output_file: str, cache_dir: str = 
                     
                     record = {
                         "id": unique_id,
+                        "question_id": f"{ds_name}_{idx}",
                         "source": ds_name,
                         "prompt": question,  # 'prompt' key matches the offline engine script
+                        "label": answer,
                         "sample_index": sample_idx
                     }
                     
