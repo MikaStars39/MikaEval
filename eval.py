@@ -329,7 +329,77 @@ def evaluate_dataset_results(
         )
         logger.info("Summary Statistics: %s", summary)
 
+def init_vllm(
+    args: argparse.Namespace,
+    logger: logging.Logger,
+    processes,
+    ports: List[int],
+    semaphores: Dict[int, asyncio.Semaphore],
+    vllm_args: List[str],
+):
+    with StageContext(logger, "A", "Prepare Model/Merge LoRA"):
+        model_path = merge_model_if_needed(args, Path(args.result_dir), logger)
+
+    with StageContext(logger, "B", "Start vLLM Backends"):
+        processes, ports = start_vllm_processes(model_path, args, vllm_args, logger)
+        atexit.register(stop_vllm_processes, processes, logger)
+
+        def handle_signal(signum, frame):  # noqa: ANN001
+            logger.warning(
+                "Received signal %d, preparing to clean up and exit.", signum
+            )
+            stop_vllm_processes(processes, logger)
+            sys.exit(1)
+
+        signal.signal(signal.SIGINT, handle_signal)
+        signal.signal(signal.SIGTERM, handle_signal)
+
+        for proc, port in zip(processes, ports):
+            if not wait_for_vllm_ready(port, proc, timeout=300, logger=logger):
+                stop_vllm_processes(processes, logger)
+                sys.exit(1)
+
+    # Initialize global semaphores
+    dp_size = max(1, args.dp_size)
+    max_concurrent_per_dp = max(1, args.max_num_request // dp_size)
+    semaphores = {port: asyncio.Semaphore(max_concurrent_per_dp) for port in ports}
+    logger.info(
+        "Global concurrency control initialized: Max concurrency per DP process=%d",
+        max_concurrent_per_dp,
+    )
+
+async def process_dataset_task(
+    args: argparse.Namespace,
+    dataset_name: str,
+    rollout_n: int,
+    ports: List[int],
+    logger: logging.Logger,
+    semaphores: Dict[int, asyncio.Semaphore],
+) -> None:
+    do_gen = args.mode in ["all", "infer"]
+    do_judge = args.mode in ["all", "llm-eval"]
+    
+    if do_gen or do_judge:
+        with StageContext(
+            logger, f"C[{dataset_name}]", "Dataset Generation (Cache/Gen)"
+        ):
+            await generate_responses(
+                args, dataset_name, rollout_n, ports, logger, semaphores,
+                do_generation=do_gen,
+                do_judge_extract=do_judge
+            )
+
+    if args.mode in ["all", "llm-eval", "rule-eval"]:
+        with StageContext(logger, f"D[{dataset_name}]", "Evaluation & Statistics"):
+            use_judge = (args.mode != "rule-eval")
+            # evaluate_dataset_results is synchronous CPU-bound task, put in thread pool to avoid blocking other concurrent tasks
+            await asyncio.to_thread(
+                evaluate_dataset_results, args, dataset_name, rollout_n, logger, use_judge
+            )
+
+
 async def main() -> None:
+    # ------------------- 0. parsing args and preparing logger -------------------- 
     args, vllm_args, leftover = parse_args()
     logger = setup_logging(Path(args.result_dir))
     if leftover:
@@ -337,6 +407,7 @@ async def main() -> None:
             "Detected unrecognized arguments (will be ignored): %s", leftover
         )
 
+    # ------------------- 1. setting vllm --------------------
     # Initialize variables for vLLM
     processes, ports, semaphores = [], [], {}
 
@@ -345,66 +416,9 @@ async def main() -> None:
     need_pass2 = args.mode in ["all", "llm-eval"]
 
     if need_pass1 or need_pass2:
-        with StageContext(logger, "A", "Prepare Model/Merge LoRA"):
-            model_path = merge_model_if_needed(args, Path(args.result_dir), logger)
+        init_vllm(args, logger, processes, ports, semaphores)
 
-        with StageContext(logger, "B", "Start vLLM Backends"):
-            processes, ports = start_vllm_processes(model_path, args, vllm_args, logger)
-            atexit.register(stop_vllm_processes, processes, logger)
-
-            def handle_signal(signum, frame):  # noqa: ANN001
-                logger.warning(
-                    "Received signal %d, preparing to clean up and exit.", signum
-                )
-                stop_vllm_processes(processes, logger)
-                sys.exit(1)
-
-            signal.signal(signal.SIGINT, handle_signal)
-            signal.signal(signal.SIGTERM, handle_signal)
-
-            for proc, port in zip(processes, ports):
-                if not wait_for_vllm_ready(port, proc, timeout=300, logger=logger):
-                    stop_vllm_processes(processes, logger)
-                    sys.exit(1)
-
-        # Initialize global semaphores
-        dp_size = max(1, args.dp_size)
-        max_concurrent_per_dp = max(1, args.max_num_request // dp_size)
-        semaphores = {port: asyncio.Semaphore(max_concurrent_per_dp) for port in ports}
-        logger.info(
-            "Global concurrency control initialized: Max concurrency per DP process=%d",
-            max_concurrent_per_dp,
-        )
-
-    async def process_dataset_task(
-        args: argparse.Namespace,
-        dataset_name: str,
-        rollout_n: int,
-        ports: List[int],
-        logger: logging.Logger,
-        semaphores: Dict[int, asyncio.Semaphore],
-    ) -> None:
-        do_gen = args.mode in ["all", "infer"]
-        do_judge = args.mode in ["all", "llm-eval"]
-        
-        if do_gen or do_judge:
-            with StageContext(
-                logger, f"C[{dataset_name}]", "Dataset Generation (Cache/Gen)"
-            ):
-                await generate_responses(
-                    args, dataset_name, rollout_n, ports, logger, semaphores,
-                    do_generation=do_gen,
-                    do_judge_extract=do_judge
-                )
-
-        if args.mode in ["all", "llm-eval", "rule-eval"]:
-            with StageContext(logger, f"D[{dataset_name}]", "Evaluation & Statistics"):
-                use_judge = (args.mode != "rule-eval")
-                # evaluate_dataset_results is synchronous CPU-bound task, put in thread pool to avoid blocking other concurrent tasks
-                await asyncio.to_thread(
-                    evaluate_dataset_results, args, dataset_name, rollout_n, logger, use_judge
-                )
-
+    # ------------------- 2. preparing and submitting datasets -------------------- 
     datasets_to_run = [item.strip() for item in args.dataset.split(",") if item.strip()]
     tasks = []
 
@@ -424,6 +438,7 @@ async def main() -> None:
             )
         )
 
+    # ------------------- 3. starting execution --------------------
     if tasks:
         logger.info(
             "Submitted %d dataset tasks concurrently, starting execution...", len(tasks)
@@ -432,19 +447,10 @@ async def main() -> None:
     else:
         logger.warning("No dataset tasks to execute.")
 
+    # ------------------- 4. stopping vllm --------------------
     if args.mode in ["all", "infer"]:
         stop_vllm_processes(processes, logger)
         logger.info("All inference processes completed.")
-
-        if args.adapter:
-            merged_model_dir = Path(args.result_dir) / "model"
-            if merged_model_dir.exists():
-                logger.info("Deleting merged model directory: %s", merged_model_dir)
-                try:
-                    shutil.rmtree(merged_model_dir)
-                    logger.info("Merged model directory deleted.")
-                except Exception as e:
-                    logger.warning("Failed to delete merged model directory: %s", e)
     else:
         logger.info("All evaluation tasks completed.")
 

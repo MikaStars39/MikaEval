@@ -16,14 +16,17 @@ def get_dataset_stats(dataset_dir: Path) -> Dict[str, Any]:
         return None
 
     scores = []
+    max_scores = []
     format_scores = []
-    
+
     with result_file.open("r", encoding="utf-8") as f:
         for line in f:
             try:
                 data = json.loads(line)
                 if "avg" in data:
                     scores.append(data["avg"])
+                if "max" in data:
+                    max_scores.append(data["max"])
                 if "format_score_avg" in data:
                     format_scores.append(data["format_score_avg"])
             except json.JSONDecodeError:
@@ -36,6 +39,7 @@ def get_dataset_stats(dataset_dir: Path) -> Dict[str, Any]:
         "dataset": dataset_dir.name,
         "count": len(scores),
         "accuracy": statistics.mean(scores),
+        "pass_at_max": statistics.mean(max_scores) if max_scores else 0.0,
         "format_accuracy": statistics.mean(format_scores) if format_scores else 0.0,
     }
 
@@ -65,26 +69,30 @@ def main():
 
     # Generate Markdown Table
     print(f"\n# Evaluation Summary: {result_path.name}\n")
-    print("| Dataset | Count | Accuracy (Pass@1) | Format Accuracy |")
-    print("| :--- | :--- | :--- | :--- |")
-    
+    print("| Dataset | Count | Accuracy (Pass@1) | Pass@Max | Format Accuracy |")
+    print("| :--- | :---: | :---: | :---: | :---: |")
+
     total_count = 0
     total_accuracy_sum = 0
+    total_max_sum = 0
     total_format_sum = 0
 
     for stats in stats_list:
         acc_pct = f"{stats['accuracy'] * 100:.2f}%"
+        max_pct = f"{stats['pass_at_max'] * 100:.2f}%"
         fmt_pct = f"{stats['format_accuracy'] * 100:.2f}%"
-        print(f"| {stats['dataset']} | {stats['count']} | {acc_pct} | {fmt_pct} |")
-        
+        print(f"| {stats['dataset']} | {stats['count']} | {acc_pct} | {max_pct} | {fmt_pct} |")
+
         total_count += stats['count']
         total_accuracy_sum += stats['accuracy'] * stats['count']
+        total_max_sum += stats['pass_at_max'] * stats['count']
         total_format_sum += stats['format_accuracy'] * stats['count']
 
     if len(stats_list) > 1:
         avg_acc = f"{(total_accuracy_sum / total_count) * 100:.2f}%"
+        avg_max = f"{(total_max_sum / total_count) * 100:.2f}%"
         avg_fmt = f"{(total_format_sum / total_count) * 100:.2f}%"
-        print(f"| **Average** | **{total_count}** | **{avg_acc}** | **{avg_fmt}** |")
+        print(f"| **Average** | **{total_count}** | **{avg_acc}** | **{avg_max}** | **{avg_fmt}** |")
     
     print("\n")
 
