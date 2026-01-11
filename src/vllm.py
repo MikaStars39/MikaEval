@@ -14,25 +14,7 @@ from typing import List, Tuple, Iterable, Dict, Any, Set, Optional
 from pathlib import Path
 from src.utils import prepare_prompt, ProgressVisualizer, StageContext
 from src.data import load_dataset_from_hf
-
-
-PROMPT_TEMPLATES = {
-    "lighteval": """{problem} Please reason step by step, and put your final answer within \\boxed{{}}.""",
-    "open-r1": """
-Solve the following math problem step by step. The last line of your response should be of the form Answer: $Answer (without quotes) where $Answer is the answer to the problem.
-
-{problem}
-
-Remember to put your answer on its own line after "Answer:".
-""".strip(),
-    "extraction": """
-Please extract the final answer from the following response. The answer should be put inside \\boxed{{}}. 
-
-Response:
-{response}
-""".strip(),
-}
-
+from src.prompt import PROMPT_TEMPLATES
 
 def extract_vllm_args(unknown: List[str]) -> Tuple[List[str], List[str]]:
     vllm_args: List[str] = []

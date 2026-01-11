@@ -485,19 +485,6 @@ def extract_answer(passage: str) -> str:
     return None
 
 
-def grade_answer_verl(solution_str: str, ground_truth: str) -> bool:
-    if not ground_truth:
-        return False
-    if "\\boxed" in ground_truth:
-        ground_truth = extract_answer(ground_truth)
-    given_answer = extract_answer(solution_str)
-    if given_answer is None:
-        return False
-    return grade_answer_mathd(given_answer, ground_truth) or grade_answer_sympy(
-        given_answer, ground_truth
-    )
-
-
 def grade_extracted_answer_perl(given_answer: str, ground_truth: str) -> float:
     if given_answer is None or given_answer.strip() == "":
         return 0.0
@@ -562,8 +549,14 @@ def score_response(
 def main():
     # Example usage
     ground_truth = "\\frac{e^{2 i t}}{(2+2 i)}"
-    given_answer = "\\boxed{\\dfrac{e^{2i t}}{2 + 2i}}"
-    is_correct = grade_answer_verl(given_answer, ground_truth)
+    given_answer = "\\boxed{\\frac{e^{2 i t}}{(2+2 i)}}"
+    is_correct = grade_answer_perl(given_answer, ground_truth)
+    print(f"Is the given answer correct? {is_correct}")
+
+    # for GPQA like multi-choice questions, we can use the following code
+    given_answer = "Answer: A"
+    ground_truth = "A"
+    is_correct = grade_answer_perl(given_answer, ground_truth)
     print(f"Is the given answer correct? {is_correct}")
 
 
