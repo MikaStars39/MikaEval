@@ -2,35 +2,27 @@ import json
 from pathlib import Path
 from datasets import load_dataset
 from tqdm import tqdm
+import logging
 
-# Configuration for supported datasets
-DATASETS = {
-    "aime2024": ("HuggingFaceH4/aime_2024", "train"),
-    "aime2025": ("yentinglin/aime_2025", "train"),
-    "amc2023": ("zwhe99/amc23", "test"),
-    "math500": ("HuggingFaceH4/MATH-500", "test"),
-    "minerva": ("math-ai/minervamath", "test"),
-    "hmmt2025": ("FlagEval/HMMT_2025", "train"),
-    "gpqa_diamond": ("fingertap/GPQA-Diamond", "test"),
-    "imo_answerbench": ("Hwilner/imo-answerbench", "train"),
-    "beyond_aime": ("ByteDance-Seed/BeyondAIME", "test"),
-}
+from src.data.task import DATASETS
 
 def load_dataset_from_hf(dataset_name: str, cache_dir: str = None):
     """Loads a dataset from HuggingFace or local cache."""
     if dataset_name in DATASETS:
-        hf_name, split = DATASETS[dataset_name]
         if cache_dir is not None:
-            cache_dataset_name = hf_name.split("/")[-1]
+            cache_dataset_name = DATASETS[dataset_name]["hf_name"].split("/")[-1]
             cache_path = Path(cache_dir) / cache_dataset_name
-            print(f"Cache path: {cache_path}")
-            print(f"Cache path exists: {cache_path.exists()}")
+            logging.info(f"Cache path: {cache_path}")
+            logging.info(f"Cache path exists: {cache_path.exists()}")
             if cache_path.exists():
                 try:
-                    return load_dataset(str(cache_path), split=split)
+                    return load_dataset(str(cache_path), split=DATASETS[dataset_name]["split"]), DATASETS[dataset_name]["custom_args"]
                 except Exception as e:
-                    print(f"Cache loading failed, falling back to HF: {e}")
-        return load_dataset(hf_name, split=split)
+                    logging.info(f"Cache loading failed, falling back to HF: {e}")
+        return load_dataset(
+            DATASETS[dataset_name]["hf_name"], 
+            split=DATASETS[dataset_name]["split"]
+        ), DATASETS[dataset_name]["custom_args"]
     else:
         raise ValueError(f"Unsupported dataset: {dataset_name}")
 
@@ -65,16 +57,22 @@ def prepare_pass_at_k_jsonl(config_str: str, output_file: str, cache_dir: str = 
     total_records = 0
     with open(output_file, "w", encoding="utf-8") as f_out:
         for ds_name, k in dataset_configs:
-            print(f"Processing {ds_name} (repeat {k} times)...")
+            logging.info(f"Processing {ds_name} (repeat {k} times)...")
             
-            # 2. Load the dataset
-            data = load_dataset_from_hf(ds_name, cache_dir)
+            # 2. Load the dataset and custom args e.g., for ifeval
+            data, custom_args = load_dataset_from_hf(ds_name, cache_dir)
             
             # 3. Iterate through rows and repeat k times
             for idx, row in enumerate(tqdm(data, desc=f"Loading {ds_name}")):
                 question = get_question_text(row)
                 answer = get_answer_text(row)
                 
+                # 4. get custom args from the datasets
+                new_args = {}
+                if len(custom_args) > 0:
+                    for each_args in custom_args:
+                        new_args[each_args] = row[each_args]
+                        
                 for sample_idx in range(k):
                     # Create a unique ID for each attempt
                     # Format: {dataset}_{original_index}_{attempt_index}
@@ -86,13 +84,15 @@ def prepare_pass_at_k_jsonl(config_str: str, output_file: str, cache_dir: str = 
                         "source": ds_name,
                         "prompt": question,  # 'prompt' key matches the offline engine script
                         "label": answer,
-                        "sample_index": sample_idx
+                        "sample_index": sample_idx,
+                        "need_llm_extract": DATASETS[ds_name]["need_llm_extract"],
+                        **new_args,
                     }
                     
                     f_out.write(json.dumps(record, ensure_ascii=False) + "\n")
                     total_records += 1
 
-    print(f"Successfully generated {output_file} with {total_records} total records.")
+    logging.info(f"Successfully generated {output_file} with {total_records} total records.")
 
 if __name__ == "__main__":
     # The input configuration string

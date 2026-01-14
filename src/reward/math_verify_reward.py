@@ -9,7 +9,7 @@ def grade_answer(solution_str: str, ground_truth: str) -> Tuple[float, float]:
             return 1.0, 1.0
         else:
             return 0.0, 1.0
-    except:
+    except Exception as e:
         print(f"Error: {e}")
         return 0.0, 0.0
 

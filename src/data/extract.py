@@ -5,6 +5,7 @@ from typing import Optional
 def prepare_extraction_data(
     input_file: Path,
     output_file: Path,
+    output_no_eval_file: Path,
     prompt_template: Optional[str] = None
 ):
     """
@@ -27,6 +28,8 @@ def prepare_extraction_data(
             "Here is an example of the incorrect output format: $123$.\n\n"
             "Now you will start to extract the answer."
         )
+    
+    no_eval_data = []
 
     with open(input_file, "r", encoding="utf-8") as f_in, open(output_file, "w", encoding="utf-8") as f_out:
         for line in f_in:
@@ -34,9 +37,22 @@ def prepare_extraction_data(
                 continue
             data = json.loads(line)
             # Use 'response' as the key for the model generated text
-            raw_res = data.pop("response", "") # Remove old response to avoid triple redundancy
-            # Use a more robust way to handle the prompt template
+            raw_res = data.get("response", "") # Remove old response to avoid triple redundancy
+            need_llm_extract = data.get("need_llm_extract", True)
+
+            # if no need to extract, skip
+            if not need_llm_extract:
+                no_eval_data.append(data)
+                continue
+            
+            data.pop("response")
+
+            # prepare the prompt for the LLM extraction
             data["prompt"] = prompt_template.replace("{response}", str(raw_res))
+            f_out.write(json.dumps(data, ensure_ascii=False) + "\n")
+    
+    with open(output_no_eval_file, "w", encoding="utf-8") as f_out:
+        for data in no_eval_data:
             f_out.write(json.dumps(data, ensure_ascii=False) + "\n")
 
 # The main function below references extract_metrics_from_file

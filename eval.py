@@ -3,12 +3,24 @@ import asyncio
 import sys
 import logging
 import json
+import os
 from pathlib import Path
-from src.utils import setup_logging
+from src.utils import setup_logging, merge_two_jsonl_file
 from src.backend.offline import run_offline_async_inference
 
 # Required for deep recursion in some datasets
 sys.setrecursionlimit(100000)
+
+#
+# The workflow of the eval.py is as follows:
+# 1. prepare data [all]
+# 2. inference [all]
+# 3. llm extraction / evaluation
+#    - some tasks need extraction e.g., math or llm-as-a-judge e.g., safety, others need orignal output e.g., ifeval
+#    - if need extraction, then do llm extraction
+#    - if need evaluation, then do evaluation
+# 4. calculate metrics [all]
+#
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="MikaEval: Offline Inference and Evaluation")
@@ -54,7 +66,7 @@ def main() -> None:
     # ------------------------------ 1. Prepare Data ------------------------------ 
     if args.mode in ["all", "infer"]:
 
-        # 1.1 prepare data
+        # --------------- 1.1 prepare data ---------------
         from src.data.data import prepare_pass_at_k_jsonl
         data_file = result_dir / "data.jsonl" 
         logging.info(f"Preparing data for {args.dataset}...")
@@ -64,7 +76,7 @@ def main() -> None:
             cache_dir=args.cache_dir,
         )
 
-        # 1.2 apply prompt template
+        # --------------- 1.2 apply prompt template ---------------
         # Apply prompt template + (if supported) model chat template before inference.
         # `prepare_pass_at_k_jsonl` writes raw questions into `prompt`; many instruct/chat models
         # behave much better if we wrap the prompt using the official tokenizer chat template.
@@ -100,69 +112,84 @@ def main() -> None:
                 },
             ))
     
-    # ------------------------------ 3. LLM Extraction ------------------------------ 
+    # ------------------------------ 3. LLM Extraction / Evaluation ------------------------------ 
     if args.mode in ["all", "llm-eval"]:
 
-        # 3.1 prepare paths
+        # --------------- 3.1 prepare paths ---------------
         from src.data.extract import prepare_extraction_data
         infer_file = result_dir / "inference_results.jsonl"
         eval_input_file = result_dir / "eval_input.jsonl"
         eval_output_file = result_dir / "eval_results.jsonl"
+        no_eval_output_file = result_dir / "no_eval_results.jsonl"
 
-        # 3.2 if exists jump
+        # --------------- 3.2 if exists jump ---------------
         if eval_output_file.exists():
             logging.info(f"Eval results exist at {eval_output_file}, skipping.")
         else:
-            # 3.3 extract the model answer from the json file
-            logging.info(f"Extracting answers using LLM...")
-            prepare_extraction_data(infer_file, eval_input_file)
             
-            # 3.4 Use separate eval model
+            # --------------- 3.3 extract the model answer from the json file ---------------
+            logging.info(f"Extracting answers using LLM...")
+            prepare_extraction_data(
+                input_file=infer_file, 
+                output_file=eval_input_file,
+                output_no_eval_file=no_eval_output_file,
+            )
+            
+            # --------------- 3.4 Use separate eval model ---------------
             try:
                 eval_model_path = args.eval_model
                 logging.info(f"Using model {eval_model_path} for extraction.")
             except Exception as e:
                 logging.error(f"Error using model {eval_model_path} for extraction: {e}")
 
-            # 3.5 prepare infer templates
-            eval_infer_input_file = eval_input_file
-            from src.data.template import apply_template_to_jsonl
-            eval_chat_input_file = result_dir / "eval_input.chat.jsonl" # save here
-            logging.info("Applying chat template to eval_input.jsonl for LLM extraction...")
-            apply_template_to_jsonl(
-                input_file=str(eval_input_file),
-                output_file=str(eval_chat_input_file),
-                model_path=str(eval_model_path),
-                user_template="blank"
-            )
-            eval_infer_input_file = eval_chat_input_file
+            # --------------- 3.5 prepare infer templates ---------------
+            if os.path.getsize(eval_input_file) == 0:
+                logging.info(f"Input file {eval_input_file} is empty, skipping.")
+            else:
+                from src.data.template import apply_template_to_jsonl
+                eval_chat_input_file = result_dir / "eval_input.chat.jsonl" # save here
+                logging.info("Applying chat template to eval_input.jsonl for LLM extraction...")
+                apply_template_to_jsonl(
+                    input_file=str(eval_input_file),
+                    output_file=str(eval_chat_input_file),
+                    model_path=str(eval_model_path),
+                    user_template="auto"
+                )
 
-            # 3.6 run inference
-            asyncio.run(run_offline_async_inference(
-                input_file=str(eval_infer_input_file),
-                output_file=str(eval_output_file),
-                model_path=eval_model_path,
-                dp_size=args.dp_size,
-                tp_size=args.tp_size,
-                mem_fraction_static=args.gpu_memory_utilization,
-                sampling_params={
-                    "temperature": args.eval_temperature,
-                    "top_p": args.eval_top_p,
-                    "max_new_tokens": args.eval_max_new_tokens,
-                },
-            ))
+                # --------------- 3.6 run inference ---------------
+                asyncio.run(run_offline_async_inference(
+                    input_file=str(eval_chat_input_file),
+                    output_file=str(eval_output_file),
+                    model_path=eval_model_path,
+                    dp_size=args.dp_size,
+                    tp_size=args.tp_size,
+                    mem_fraction_static=args.gpu_memory_utilization,
+                    sampling_params={
+                        "temperature": args.eval_temperature,
+                        "top_p": args.eval_top_p,
+                        "max_new_tokens": args.eval_max_new_tokens,
+                        },
+                    ))
+                logging.info(f"Inference completed for {eval_infer_input_file}")
+
+            # --------------- 3.7 merge eval and no eval into one file ---------------
+            merge_two_jsonl_file(
+                file1_path=eval_output_file,
+                file2_path=no_eval_output_file,
+                output_path=eval_output_file,
+            )
     
 
     # ------------------------------ 4. Calculate Accuracy ------------------------------ 
     if args.mode in ["all", "llm-eval"]:
         
-        # 4.1 extract metrics
-        from src.reward.reward import extract_metrics_from_file
-        results = extract_metrics_from_file(eval_output_file)
-        
-        # 4.2 calculate metrics and print
-        from src.utils import calculate_and_print_metrics
-        calculate_and_print_metrics(eval_output_file, cache_dir=args.cache_dir)
+        # --------------- 4.1 eval the results and save ---------------
+        from src.reward.reward import eval_results
+        final_eval_output_file = result_dir / "final.jsonl"
+        eval_results(
+            eval_output_file=eval_output_file,
+            final_eval_output_file=final_eval_output_file,
+        )
 
 if __name__ == "__main__":
     main()

@@ -15,10 +15,9 @@ async def run_offline_async_inference(
     mem_fraction_static: float = 0.90,
     sampling_params: dict = None
 ):
-    if sampling_params is None:
-        sampling_params = {"temperature": 0.6, "top_p": 0.9, "max_new_tokens": 2048}
 
-    print(f"Initializing Engine with model: {model_path}")
+    if sampling_params is None:
+        raise ValueError("sampling_params is required")
 
     def _extract_token_counts(output: Dict[str, Any]) -> Tuple[Optional[int], Optional[int], Optional[int]]:
         """
