@@ -1,9 +1,8 @@
-import re
 import json
+import logging
 from typing import Dict, List
 from pathlib import Path
 
-from tqdm import tqdm
 from datasets import load_dataset
 
 from src.reward.if_eval.if_eval import if_judge
@@ -63,18 +62,26 @@ def eval_results(
     n_proc: int = 32
 ) -> Dict[str, Dict[str, float]]:
     
-    results = load_dataset("json", data_files=eval_output_file)
+    logging.info(f"Scoring eval results from {eval_output_file} (num_proc={n_proc})...")
+    
+    # load_dataset() expects str/list/dict patterns, not Path objects.
+    results = load_dataset("json", data_files=str(eval_output_file), split="train")
+    logging.info(f"Loaded {len(results)} records; running judge_router...")
+    
     results = results.map(judge_router, num_proc=n_proc)
+    logging.info("Judging complete; computing metrics...")
 
     # ------------------ calculate the metrics and return ------------------ 
-    results = _calculate_matrics(list(results))
+    metrics = _calculate_matrics(list(results))
     with open(final_eval_output_file, "w", encoding="utf-8") as f:
-        for item in results:
-            f.write(json.dumps(item, ensure_ascii=False) + "\n")
+        for ds_name, ds_metrics in metrics.items():
+            f.write(json.dumps([ds_name, ds_metrics], ensure_ascii=False) + "\n")
+    logging.info(f"Saved final metrics to {final_eval_output_file}")
     
     return metrics
 
 if __name__ == "__main__":
-    test_res = "The answer is \\boxed{m/frac{2}{3}}"
-    print(f"Extracted: {extract_answer(test_res)}")
-    print(f"Reward: {get_reward(extract_answer(test_res), 'm/frac{{2}}{{3}}', 'dapo')}")
+    raise SystemExit(
+        "This module is intended to be imported (see eval.py). "
+        "Run `python eval.py ...` instead."
+    )
