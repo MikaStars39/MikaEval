@@ -1,139 +1,23 @@
 import re
 import json
-from typing import Dict
+from typing import Dict, List
 from pathlib import Path
-from slime.rollout.rm_hub.f1 import f1_score
-from slime.rollout.rm_hub.deepscaler import get_deepscaler_rule_based_reward
-from slime.rollout.rm_hub.math_dapo_utils import compute_score
 
-from .grader import grade_answer
+from tqdm import tqdm
+from datasets import load_dataset
 
-def extract_answer(text: str) -> str:
-    """Extract answer from model response using regex (boxed or last value)."""
-    if not text:
-        return ""
+from src.reward.if_eval.if_eval import if_judge
+from src.reward.math.math_verify_reward import math_judge
 
-    # NOTE:
-    # - 一些 jsonl 里可能错误地写成 "\boxed{...}"（单反斜杠）。
-    #   json.loads 会把 "\b" 解析成退格符 \x08，导致后续正则匹配不到。
-    #   这里把退格符还原为字面量 "\b"（两字符：反斜杠 + b）。
-    if "\x08" in text:
-        text = text.replace("\x08", "\\b")
-
-    # 1) 优先提取 \boxed{...}
-    # 不能用简单正则去找 "第一个 }" 结束，因为 boxed 内容里常见嵌套花括号：
-    #   \boxed{9.0 \times 10^{11}}
-    # 这里用括号配对解析，确保提取完整 boxed 内容；若有多个，取最后一个。
-    results = []
-    for m in re.finditer(r"\\boxed\b", text):
-        i = m.end()
-        # 跳过 \boxed 后面的空白，找到第一个 '{'
-        while i < len(text) and text[i].isspace():
-            i += 1
-        if i >= len(text) or text[i] != "{":
-            continue
-
-        i += 1  # skip '{'
-        depth = 1
-        start = i
-        while i < len(text) and depth > 0:
-            ch = text[i]
-            if ch == "{":
-                depth += 1
-            elif ch == "}":
-                depth -= 1
-            i += 1
-
-        if depth == 0:
-            # i 已经指向匹配到的 '}' 之后
-            results.append(text[start : i - 1].strip())
-
-    if results:
-        return results[-1]
-
-    return ""
-
-def get_reward(
-    response: str, 
-    label: str, 
-    reward_type: str,
-) -> float:
-    """Evaluate response against label using specified reward type."""
-    # Pre-clean labels and responses
-    if not label or not str(label).strip():
-        return 0.0
-    
-    # Clean up response (some models might still include "Answer: 123")
-    response = response.replace("Answer:", "").strip()
-
-    res = 0.0
-    try:
-        if reward_type == "f1":
-            res = f1_score(response, label)
-        elif reward_type == "deepscaler":
-            # Deepscaler expects a specific format
-            formatted_res = f"<think></think>\\boxed{{{response}}}"
-            res = get_deepscaler_rule_based_reward(formatted_res, label)
-        elif reward_type == "dapo":
-            # Dapo expects "Answer:xxx"
-            res = compute_score(f"Answer:{response}", label)
-        else:
-            raise ValueError(f"Invalid reward type: {reward_type}")
-    except (ValueError, TypeError) as e:
-        # Handle cases where the answer format is incompatible (e.g., complex numbers, special formats)
-        # In such cases, we return 0.0 (incorrect)
-        import logging
-        logging.warning(f"Failed to compute reward for response='{response}', label='{label}', reward_type='{reward_type}': {e}")
-        return 0.0
-
-    # If the reward function returns a dict (common in slime), extract the score
-    if isinstance(res, dict):
-        score = float(res.get("score", res.get("reward", 0.0)))
-    else:
-        score = float(res)
-
-    # For math datasets (dapo/deepscaler), we usually want binary scores (0 or 1)
-    # This prevents small partial credits from inflating Pass@K
-    if reward_type in ["dapo", "deepscaler"]:
-        return 1.0 if score >= 1.0 else 0.0
-    
-    return score
-
-def extract_metrics_from_file(eval_output_file: Path) -> Dict[str, Dict[str, float]]:
-    updated_lines = []
-    updated_items = []
-
-    with open(eval_output_file, "r", encoding="utf-8") as f:
-        for line in f:
-            if not line.strip(): 
-                continue
-            item = json.loads(line)
-            label = item.get("label", "")
-            raw_eval_res = item.get("response", "") 
-            pred_ans = extract_answer(raw_eval_res)
-            score = grade_answer(f"\\boxed{{{pred_ans}}}", label)
-            # 方便排查：把提取出来的答案也写入（同时在落盘时仍会去掉 prompt/response）
-            item["pred"] = pred_ans
-            item["score"] = score
-            updated_items.append(item)
-            updated_lines.append(json.dumps(item, ensure_ascii=False))
-
-    new_eval_output_file = eval_output_file.with_suffix(f".scored{eval_output_file.suffix}")
-    with open(new_eval_output_file, "w", encoding="utf-8") as f:
-        for line in updated_lines:
-            item = json.loads(line)
-            cleaned_item = {k: v for k, v in item.items() if k not in ["prompt", "response"]}
-            f.write(json.dumps(cleaned_item, ensure_ascii=False) + "\n")
-
+def _calculate_matrics(
+    updated_items: List[Dict]
+) -> Dict[str, Dict[str, float]]:
     # Calculate final metrics
     raw_data = {}
     for item in updated_items:
         ds_name = item.get("source", "unknown")
         q_id = item.get("question_id", "unknown")
-        score_tuple = item.get("score", (0.0, 0.0))
-        # Extract the actual score (first element of tuple)
-        score = float(score_tuple[0]) if isinstance(score_tuple, (list, tuple)) and len(score_tuple) > 0 else float(score_tuple)
-
+        score = 1.0 if item.get("pass", False) else 0.0
         raw_data.setdefault(ds_name, {}).setdefault(q_id, []).append(score)
 
     final_results = {}
@@ -160,11 +44,35 @@ def extract_metrics_from_file(eval_output_file: Path) -> Dict[str, Dict[str, flo
 
     final_results["overall"] = {
         "avg_k": sum(overall_all_scores) / len(overall_all_scores) if overall_all_scores else 0,
-        # “整体正确率”这里用整体 Pass@K（每题只要有一个 sample 正确就算该题正确）
         "pass_k": sum(overall_pass_at_k_scores) / len(overall_pass_at_k_scores) if overall_pass_at_k_scores else 0,
     }
 
     return final_results
+
+def judge_router(
+    instance: Dict
+) -> Dict:
+    if instance.get("eval_type", "ifeval") == "ifeval":
+        return if_judge(instance)
+    else:
+        return math_judge(instance)
+
+def eval_results(
+    eval_output_file: Path,
+    final_eval_output_file: Path,
+    n_proc: int = 32
+) -> Dict[str, Dict[str, float]]:
+    
+    results = load_dataset("json", data_files=eval_output_file)
+    results = results.map(judge_router, num_proc=n_proc)
+
+    # ------------------ calculate the metrics and return ------------------ 
+    results = _calculate_matrics(list(results))
+    with open(final_eval_output_file, "w", encoding="utf-8") as f:
+        for item in results:
+            f.write(json.dumps(item, ensure_ascii=False) + "\n")
+    
+    return metrics
 
 if __name__ == "__main__":
     test_res = "The answer is \\boxed{m/frac{2}{3}}"
