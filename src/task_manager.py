@@ -19,6 +19,7 @@ class TaskPaths:
     eval_output_file: Path
     no_eval_output_file: Path
     final_eval_output_file: Path
+    score_output_file: Path
 
 
 class TaskManager:
@@ -34,6 +35,7 @@ class TaskManager:
             eval_output_file=self.result_dir / "eval_results.jsonl",
             no_eval_output_file=self.result_dir / "no_eval_results.jsonl",
             final_eval_output_file=self.result_dir / "final.jsonl",
+            score_output_file=self.result_dir / "score_results.jsonl",
         )
 
     @property
@@ -133,7 +135,7 @@ class TaskManager:
                 input_file=str(self.paths.eval_input_file),
                 output_file=str(self.paths.eval_chat_input_file),
                 model_path=self.eval_model_path,
-                user_template="auto",
+                user_template="blank", # does not need to apply any other user template
             )
 
             asyncio.run(
@@ -173,6 +175,7 @@ class TaskManager:
 
         eval_results(
             eval_output_file=self.paths.eval_output_file,
+            score_output_file=self.paths.score_output_file,
             final_eval_output_file=self.paths.final_eval_output_file,
         )
         return self.paths.final_eval_output_file

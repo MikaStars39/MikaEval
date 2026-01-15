@@ -51,13 +51,14 @@ def _calculate_matrics(
 def judge_router(
     instance: Dict
 ) -> Dict:
-    if instance.get("eval_type", "ifeval") == "ifeval":
+    if "ifeval" in instance.get("source", "unknown").lower():
         return if_judge(instance)
     else:
         return math_judge(instance)
 
 def eval_results(
     eval_output_file: Path,
+    score_output_file: Path,
     final_eval_output_file: Path,
     n_proc: int = 32
 ) -> Dict[str, Dict[str, float]]:
@@ -68,11 +69,32 @@ def eval_results(
     results = load_dataset("json", data_files=str(eval_output_file), split="train")
     logging.info(f"Loaded {len(results)} records; running judge_router...")
     
-    results = results.map(judge_router, num_proc=n_proc)
+    results = results.map(
+        judge_router,
+        num_proc=n_proc,
+        load_from_cache_file=False,
+        desc="judge_router",
+    )
     logging.info("Judging complete; computing metrics...")
 
+    items = list(results)
+    passing_keys = {
+        (item.get("source", "unknown"), item.get("question_id", "unknown"))
+        for item in items
+        if item.get("pass", False)
+    }
+    for item in items:
+        key = (item.get("source", "unknown"), item.get("question_id", "unknown"))
+        item["pass_at_k"] = key in passing_keys
+
+    # ------------------ save the results to a jsonl file ------------------
+    with open(score_output_file, "w", encoding="utf-8") as f:
+        for item in items:
+            f.write(json.dumps(item, ensure_ascii=False) + "\n")
+    logging.info(f"Saved score results to {score_output_file}")
+
     # ------------------ calculate the metrics and return ------------------ 
-    metrics = _calculate_matrics(list(results))
+    metrics = _calculate_matrics(items)
     with open(final_eval_output_file, "w", encoding="utf-8") as f:
         for ds_name, ds_metrics in metrics.items():
             f.write(json.dumps([ds_name, ds_metrics], ensure_ascii=False) + "\n")

@@ -66,12 +66,14 @@ def math_judge(
     label = instance.get("label", "")
     raw_eval_res = instance.get("response", "") 
 
-    pred_ans = _extract_answer(raw_eval_res)
-    if pred_ans is None:
+    pred_ans = extract_answer(raw_eval_res)
+    
+    if not pred_ans:
         instance["pred"] = pred_ans
         instance["pass"] = False
+        return instance
 
-    score = grade_answer(f"${pred_ans}$", f"${label}$")
+    score, _ = grade_answer(f"${pred_ans}$", f"${label}$")
 
     instance["pred"] = pred_ans
     instance["pass"] = True if score == 1.0 else False

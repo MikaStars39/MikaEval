@@ -14,11 +14,12 @@ def prepare_extraction_data(
     Args:
         input_file: Path to inference_results.jsonl
         output_file: Path to eval_input.jsonl
+        output_no_eval_file: Path,
         prompt_template: Custom prompt template for extraction
     """
     if prompt_template is None:
         prompt_template = (
-            "Here is a easoning process from another model:\n{response}\n\n"
+            "Here is part of easoning process from another model:\n{response}\n\n"
             "Please extract the final answer from the following reasoning process. "
             "Respond only with the answer wrapped in \\boxed{}.\n\n"
             "You should ONLY output \\boxed{{answer}} format. Do not think, or CoT. Do not output anything else. Just the answer.\n\n"
@@ -48,7 +49,7 @@ def prepare_extraction_data(
             data.pop("response")
 
             # prepare the prompt for the LLM extraction
-            data["prompt"] = prompt_template.replace("{response}", str(raw_res))
+            data["prompt"] = prompt_template.replace("{response}", str(raw_res)[:1000]) # for math, the answer is in the end.
             f_out.write(json.dumps(data, ensure_ascii=False) + "\n")
     
     with open(output_no_eval_file, "w", encoding="utf-8") as f_out:

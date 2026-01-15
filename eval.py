@@ -21,7 +21,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dp-size", type=int, default=1, help="Data parallel size.")
     parser.add_argument("--tp-size", type=int, default=1, help="Tensor parallel size.")
     parser.add_argument("--gpu-memory-utilization", type=float, default=0.9, help="GPU memory utilization.")
-    parser.add_argument("--batch-size", type=int, default=256, help="Batch size for inference.")
     
     # Sampling Params
     parser.add_argument("--temperature", type=float, default=0.0)
