@@ -1,6 +1,9 @@
 
 
 DATASETS = {
+
+# --------------------------- math ------------------------------
+
     "aime2024": {
         "hf_name": "HuggingFaceH4/aime_2024", 
         "split": "train", 
@@ -43,13 +46,6 @@ DATASETS = {
         "need_llm_extract": False,
         "eval_type": "math",
     },
-    "gpqa_diamond": {
-        "hf_name": "fingertap/GPQA-Diamond",
-        "split": "test",
-        "custom_args": [],
-        "need_llm_extract": False,
-        "eval_type": "math",
-    },
     "imo_answerbench": {
         "hf_name": "Hwilner/imo-answerbench",
         "split": "train",
@@ -64,6 +60,25 @@ DATASETS = {
         "need_llm_extract": False,
         "eval_type": "math",
     },
+    
+# --------------------------- GeneralQA ------------------------------
+
+    "gpqa_diamond": {
+        "hf_name": "fingertap/GPQA-Diamond",
+        "split": "test",
+        "custom_args": [],
+        "need_llm_extract": False,
+        "eval_type": "math",
+    },
+
+    "mmlu_pro": {
+        "hf_name": "TIGER-Lab/MMLU-Pro",
+        "split": "test",
+        "custom_args": [],
+        "need_llm_extract": False,
+        "eval_type": "math",
+    },
+
     "ifeval": {
         "hf_name": "google/IFEval",
         "split": "train",
