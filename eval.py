@@ -67,7 +67,7 @@ def main() -> None:
     if args.mode in ["all", "infer"]:
 
         # --------------- 1.1 prepare data ---------------
-        from src.data.data import prepare_pass_at_k_jsonl
+        from src.tasks import prepare_pass_at_k_jsonl
         data_file = result_dir / "data.jsonl" 
         logging.info(f"Preparing data for {args.dataset}...")
         prepare_pass_at_k_jsonl(
@@ -80,7 +80,7 @@ def main() -> None:
         # Apply prompt template + (if supported) model chat template before inference.
         # `prepare_pass_at_k_jsonl` writes raw questions into `prompt`; many instruct/chat models
         # behave much better if we wrap the prompt using the official tokenizer chat template.
-        from src.data.template import apply_template_to_jsonl
+        from src.utils.template import apply_template_to_jsonl
         infer_input_file = data_file
         formatted_input_file = result_dir / "data.chat.jsonl"
         logging.info(f"Applying prompt/chat template for inference (format={args.prompt_format})...")
@@ -147,7 +147,7 @@ def main() -> None:
             if os.path.getsize(eval_input_file) == 0:
                 logging.info(f"Input file {eval_input_file} is empty, skipping.")
             else:
-                from src.data.template import apply_template_to_jsonl
+                from src.utils.template import apply_template_to_jsonl
                 eval_chat_input_file = result_dir / "eval_input.chat.jsonl" # save here
                 logging.info("Applying chat template to eval_input.jsonl for LLM extraction...")
                 apply_template_to_jsonl(
