@@ -90,6 +90,14 @@ DATASETS = {
         "need_llm_extract": False,
         "eval_type": "ifeval",
     },
+
+    "ceval": {
+        "hf_name": "ceval/ceval-exam",
+        "split": "test",
+        "custom_args": [],
+        "need_llm_extract": False,
+        "eval_type": "math",
+    }
 }
 
 def get_question_text(row):
