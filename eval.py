@@ -116,11 +116,18 @@ def main() -> None:
     if args.mode in ["all", "llm-eval"]:
 
         # --------------- 3.1 prepare paths ---------------
-        from src.data.extract import prepare_extraction_data
+        from src.llm_judge.extract import prepare_extraction_data
         infer_file = result_dir / "inference_results.jsonl"
         eval_input_file = result_dir / "eval_input.jsonl"
         eval_output_file = result_dir / "eval_results.jsonl"
         no_eval_output_file = result_dir / "no_eval_results.jsonl"
+        try:
+            eval_model_path = args.eval_model
+            logging.info(f"Using model {eval_model_path} for extraction.")
+        except Exception as e:
+            logging.error(f"No eval model provided, skipping extraction.")
+            raise ValueError("No eval model provided, skipping extraction.")
+
 
         # --------------- 3.2 if exists jump ---------------
         if eval_output_file.exists():
@@ -134,14 +141,8 @@ def main() -> None:
                 output_file=eval_input_file,
                 output_no_eval_file=no_eval_output_file,
             )
-            
             # --------------- 3.4 Use separate eval model ---------------
-            try:
-                eval_model_path = args.eval_model
-                logging.info(f"Using model {eval_model_path} for extraction.")
-            except Exception as e:
-                logging.error(f"Error using model {eval_model_path} for extraction: {e}")
-
+            # deprecated
             # --------------- 3.5 prepare infer templates ---------------
             if os.path.getsize(eval_input_file) == 0:
                 logging.info(f"Input file {eval_input_file} is empty, skipping.")
