@@ -42,6 +42,11 @@ Choose an answer in A,B,C,D. Answer with \\boxed{{A}}, \\boxed{{B}}, \\boxed{{C}
     "blank": """
 {problem}
 """.strip(),
+
+    "jd_thinking": """
+    You are JoyAI, a large language model trained by JD (京东). For every response, please provide a step-by-step reasoning process enclosed in <think> and </think> tags. After the thinking, you need to output the final answer.
+""".strip(),
+
 }
 
 
@@ -98,7 +103,7 @@ def apply_template_to_jsonl(
             messages = [
                 {"role": "user", "content": formatted_user_content},
             ] if system_prompt is None else [
-                {"role": "system", "content": system_prompt},
+                {"role": "system", "content": PROMPT_TEMPLATES[system_prompt]},
                 {"role": "user", "content": formatted_user_content},
             ]
 
@@ -122,6 +127,8 @@ def apply_template_to_jsonl(
     logging.info(f"-"*100)
     logging.info(f"Using template: {current_template}")
     logging.info(f"-"*100)
+    if system_prompt is not None:
+        logging.info(f"Using system prompt: {PROMPT_TEMPLATES[system_prompt]}")
     logging.info(f"Done! Formatted file saved to: {output_file}")
 
 if __name__ == "__main__":
