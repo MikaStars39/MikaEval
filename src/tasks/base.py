@@ -83,14 +83,6 @@ DATASETS = {
         "eval_type": "math",
     },
 
-    "ifeval": {
-        "hf_name": "google/IFEval",
-        "split": "train",
-        "custom_args": ["instruction_id_list", "kwargs"],
-        "need_llm_extract": False,
-        "eval_type": "ifeval",
-    },
-
     "ceval": {
         "hf_name": "ceval/ceval-exam",
         "split": "test",
@@ -98,6 +90,25 @@ DATASETS = {
         "need_llm_extract": False,
         "eval_type": "math",
     },
+
+# --------------------------- Instruction Following ------------------------------
+
+    "ifeval": {
+        "hf_name": "google/IFEval",
+        "split": "train",
+        "need_llm_extract": False,
+        "eval_type": "ifeval",
+    },
+
+    "ifbench": {
+        "hf_name": "allenai/IFBench_test",
+        "split": "train",
+        "custom_args": ["instruction_id_list", "kwargs"],
+        "need_llm_extract": False,
+        "eval_type": "ifbench",
+    },
+
+# --------------------------- Training Data ------------------------------
 
     "DAPO_Math_17k_Processed": {
         "hf_name": "open-r1/DAPO-Math-17k-Processed",

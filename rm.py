@@ -85,11 +85,11 @@ async def reward_endpoint(req: RewardRequest):
             logger.info(f"[{req.source}] GT: {preview}... | Pred: {result.get('pred', 'N/A')} | Score: {score}")
             asyncio.create_task(save_request_log(args.output_dir, req, result, score))
             
-            return {"score": score, "result": result}
+            return score
             
         except asyncio.TimeoutError:
             logger.error("Request timed out")
-            return {"score": 0.0, "result": {"error": "timeout"}}
+            return 0.0
         except Exception as e:
             logger.error(f"Error: {e}")
             raise HTTPException(status_code=500, detail=str(e))

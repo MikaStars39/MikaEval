@@ -2,10 +2,12 @@
 import json
 from src.reward.if_eval.instructions_registry import INSTRUCTION_DICT
 
-def if_judge(instance):
-    instructions = instance['instruction_id_list']
-    kwargs_list = instance['kwargs']
-    response = instance['response']
+def if_judge(
+    response: str,
+    **kwargs
+):
+    instructions = kwargs['instruction_id_list']
+    kwargs_list = kwargs['kwargs']
 
     prompt_level_pass_flag = True
     instruction_pass_cnt = 0
