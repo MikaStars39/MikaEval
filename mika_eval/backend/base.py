@@ -80,6 +80,7 @@ class BaseSGLangEngine:
         if self.llm:
             logger.info("Shutting down Engine...")
             self.llm.shutdown()
+            await asyncio.sleep(0.5)
         if exc_val:
             logger.error(f"Engine exited with error: {exc_val}")
 
