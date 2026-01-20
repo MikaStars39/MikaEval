@@ -31,7 +31,6 @@ def load_hmmt2025(
                 "sample_index": sample_idx,
                 "need_llm_extract": DATASETS[dataset_name]["need_llm_extract"],
                 "label": answer,
-                
             }
             
             f_out.write(json.dumps(record, ensure_ascii=False) + "\n")

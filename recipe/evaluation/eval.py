@@ -1,3 +1,8 @@
+from pathlib import Path
+
+from mika_eval.config import parse_eval_args
+from mika_eval.utils import setup_logging
+
 import argparse
 import asyncio
 import logging
@@ -42,23 +47,48 @@ class TaskManager:
         from mika_eval.utils import apply_template_to_jsonl
 
         logging.info(f"Preparing data for {self.args.dataset}...")
-        prepare_pass_at_k_jsonl(
-            config_str=self.args.dataset,
-            output_file=str(self.paths.data_file),
-            cache_dir=self.args.cache_dir,
-        )
+
+        dataset_configs = []
+        for item in self.args.dataset.split(","):
+            name, k_val = item.split("@")
+            dataset_configs.append((name.strip(), int(k_val.strip())))
+
+        out_dir = os.path.dirname(str(self.paths.data_file))
+        if out_dir:
+            os.makedirs(out_dir, exist_ok=True)
+
+        with open(str(self.paths.data_file), "w", encoding="utf-8") as f_out:
+            for ds_name, k in dataset_configs:
+
+                logging.info(f"Processing {ds_name} (repeat {k} times)...")
+                
+                loader_name = f"load_{ds_name.replace('-', '_')}"
+                loader = getattr(tasks, loader_name, None)
+                if loader is None:
+                    raise ValueError(
+                        f"Could not find loader '{loader_name}' for dataset '{ds_name}'. "
+                        f"Please implement '{loader_name}(dataset_name, cache_dir, k, f_out)'."
+                    )
+                loader(ds_name, self.args.cache_dir, k, f_out)
+
+        logging.info(f"Successfully generated {str(self.paths.data_file)}.")
 
         logging.info(
             f"Applying prompt/chat template for inference (format={self.args.prompt_format})..."
         )
+
+    def apply_template_to_jsonl(
+        input_file: str,
+        output_file: str,
+        model_path: str,
+    ):
+        
+        from mika_eval.utils import apply_template_to_jsonl
         apply_template_to_jsonl(
-            input_file=str(self.paths.data_file),
-            output_file=str(self.paths.formatted_input_file),
-            model_path=str(self.args.model),
-            user_template=self.args.prompt_format,
-            system_prompt=self.args.system_prompt,
+            input_file=input_file,
+            output_file=output_file,
+            model_path=model_path,
         )
-        return self.paths.formatted_input_file
 
     def inference(self) -> Path:
         """
@@ -137,3 +167,30 @@ class TaskManager:
         )
         
         return self.paths.final_eval_output_file
+
+
+
+def main() -> None:
+    args = parse_eval_args()
+    result_dir = Path(args.result_dir)
+    setup_logging(result_dir)
+    task_manager = TaskManager(args=args, result_dir=result_dir)
+
+    # ------------------------------ 1. Prepare ------------------------------
+    if args.mode in ["all", "prepare"]:
+        task_manager.prepare_data()
+    
+    # ------------------------------ 2. Inference ------------------------------
+    if args.mode in ["all", "infer"]:
+        task_manager.inference()
+
+    # ------------------------------ 3. LLM Eval ------------------------------
+    if args.mode in ["all", "llm-eval"]:
+        task_manager.llm_evaluation()
+
+    # ------------------------------ 4. Calculate Metrics ------------------------------
+    if args.mode in ["all", "metrics"]:
+        task_manager.calculate_metrics()
+
+if __name__ == "__main__":
+    main()
