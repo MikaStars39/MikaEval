@@ -1,1 +1,0 @@
-python view.py outputs/debug
