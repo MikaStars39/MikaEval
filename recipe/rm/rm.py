@@ -15,13 +15,53 @@ import uvicorn
 from fastapi import FastAPI, HTTPException
 
 from mika_eval.backend import OnlineServingEngine
-from mika_eval.config import parse_rm_args
 from mika_eval.llm_judge import extract_answer_online
 from mika_eval.reward import judge_router
 from mika_eval.server import RewardRequest, save_request_log
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
 logger = logging.getLogger("RM")
+
+# ----------------------- RM Server CLI -----------------------
+
+def parse_rm_args() -> argparse.Namespace:
+    """Parse CLI arguments for Reward Model Server."""
+    parser = argparse.ArgumentParser(description="Reward Model Server")
+    
+    # Model settings
+    parser.add_argument("--model-path", default="Qwen/Qwen2.5-Math-7B-Instruct",
+                        help="Path to the model")
+    parser.add_argument("--tp-size", type=int, default=1,
+                        help="Tensor parallel size")
+    parser.add_argument("--dp-size", type=int, default=1,
+                        help="Data parallel size")
+    parser.add_argument("--mem-fraction-static", type=float, default=0.90,
+                        help="Static memory fraction for SGLang")
+    
+    # Generation settings
+    parser.add_argument("--temperature", type=float, default=0.0,
+                        help="Sampling temperature")
+    parser.add_argument("--top-p", type=float, default=1.0,
+                        help="Top-p sampling")
+    parser.add_argument("--max-new-tokens", type=int, default=256,
+                        help="Maximum new tokens to generate")
+    
+    # Server settings
+    parser.add_argument("--host", default="0.0.0.0",
+                        help="Server host")
+    parser.add_argument("--port", type=int, default=8000,
+                        help="Server port")
+    parser.add_argument("--max-concurrent", type=int, default=16,
+                        help="Maximum concurrent requests")
+    parser.add_argument("--timeout", type=int, default=30,
+                        help="Request timeout in seconds")
+    
+    # Logging
+    parser.add_argument("--output-dir", default="rm_logs",
+                        help="Directory for log output")
+    
+    return parser.parse_args()
+
 
 
 # ------------ Global State ------------
