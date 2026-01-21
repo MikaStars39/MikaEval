@@ -2,113 +2,130 @@ import sys
 import json
 import os
 import argparse
-from datasets import load_dataset
+from typing import Set, Dict, List
 
-# ------ Utility Functions --------
-def calculate_word_overlap(text1, text2):
+# ------ Similarity Logic --------
+def get_word_set(text: str) -> Set[str]:
     """
-    Calculate the ratio of shared words between two strings.
-    Using set intersection to determine similarity.
+    Standardize text into a set of words.
+    Linux principle: Keep it simple and focused.
     """
-    words1 = set(text1.split())
-    words2 = set(text2.split())
-    if not words1:
-        return 0.0
+    if not text:
+        return set()
+    return set(text.split())
+
+def is_similar(target_words: Set[str], ref_words_list: List[Set[str]], threshold: float) -> bool:
+    """
+    Check if target word set overlaps significantly with any in the list.
+    """
+    if not target_words:
+        return False
     
-    intersection = words1.intersection(words2)
-    # Ratio relative to the target prompt's word count
-    return len(intersection) / len(words1)
+    target_len = len(target_words)
+    for ref_words in ref_words_list:
+        intersection_len = len(target_words.intersection(ref_words))
+        if intersection_len / target_len > threshold:
+            return True
+    return False
 
-# ------ Argument Parsing --------
-def parse_args():
+# ------ Knowledge Base --------
+class GlobalKnowledgeBase:
     """
-    Standard Linux-style CLI argument parsing.
-    Exposes parameters for easy automation and piping.
+    Stateful engine to track unique entries across multiple files.
+    SOLID Principle: Single Responsibility.
     """
-    parser = argparse.ArgumentParser(description="Deduplicate JSONL datasets based on Prompt and Label similarity.")
-    parser.add_argument("target", help="Path to the target .jsonl file to clean.")
-    parser.add_argument("refs", nargs="+", help="One or more reference .jsonl files to check against.")
-    parser.add_argument("--threshold", type=float, default=0.5, help="Word overlap threshold (default: 0.5)")
-    parser.add_argument("--proc", type=int, default=32, help="Number of CPU processes for mapping (default: 32)")
-    return parser.parse_args()
+    def __init__(self, threshold: float):
+        self.seen_prompts = set()
+        self.label_map: Dict[str, List[Set[str]]] = {}
+        self.threshold = threshold
 
-# ------ Core Logic --------
+    def is_duplicate(self, prompt: str, label: str) -> bool:
+        """
+        Check against the global state and update if unique.
+        """
+        # 1. Exact match check
+        if prompt in self.seen_prompts:
+            return True
+        
+        # 2. Label + Similarity check
+        current_words = get_word_set(prompt)
+        if label and label in self.label_map:
+            if is_similar(current_words, self.label_map[label], self.threshold):
+                return True
+
+        # If it's unique, register it
+        self.seen_prompts.add(prompt)
+        if label:
+            if label not in self.label_map:
+                self.label_map[label] = []
+            self.label_map[label].append(current_words)
+        
+        return False
+
+# ------ Core File Processing --------
+def process_file(file_path: str, kb: GlobalKnowledgeBase):
+    """
+    Handles IO for a single file, saving output to the same directory.
+    """
+    # Generate output paths in the same directory as the source
+    file_dir = os.path.dirname(file_path)
+    base_name = os.path.splitext(os.path.basename(file_path))[0]
+    
+    out_path = os.path.join(file_dir, f"{base_name}_deduped.jsonl")
+    rem_path = os.path.join(file_dir, f"{base_name}_removed.jsonl")
+
+    print(f"[*] Processing: {file_path}")
+    
+    dup_count = 0
+    total_count = 0
+    
+    with open(file_path, 'r', encoding='utf-8') as f_in, \
+         open(out_path, 'w', encoding='utf-8') as f_out, \
+         open(rem_path, 'w', encoding='utf-8') as f_rem:
+        
+        for line in f_in:
+            line = line.strip()
+            if not line:
+                continue
+            
+            try:
+                data = json.loads(line)
+                total_count += 1
+                
+                # Deduplication logic
+                if kb.is_duplicate(data.get('prompt', ''), data.get('label')):
+                    f_rem.write(line + '\n')
+                    dup_count += 1
+                else:
+                    f_out.write(line + '\n')
+                    
+            except json.JSONDecodeError:
+                continue
+
+    print(f"    - Finished: {total_count} lines processed.")
+    print(f"    - Saved: {out_path} (Keep: {total_count - dup_count})")
+    print(f"    - Saved: {rem_path} (Removed: {dup_count})")
+
+# ------ CLI Entry Point --------
 def main():
-    args = parse_args()
+    parser = argparse.ArgumentParser(description="Multi-file mutual deduplication.")
+    parser.add_argument("files", nargs="+", help="Input .jsonl files.")
+    parser.add_argument("-t", "--threshold", type=float, default=0.95, 
+                        help="Similarity threshold for word overlap")
+    
+    args = parser.parse_args()
+    
+    # Initialize global state
+    kb = GlobalKnowledgeBase(args.threshold)
 
-    # 1. Path Management
-    file_dir = os.path.dirname(args.target)
-    base_name = os.path.splitext(os.path.basename(args.target))[0]
-    cleaned_path = os.path.join(file_dir, f"{base_name}_cleaned.jsonl")
-    removed_path = os.path.join(file_dir, f"{base_name}_removed.jsonl")
+    # Process files sequentially to maintain order priority
+    for f in args.files:
+        if os.path.exists(f):
+            process_file(f, kb)
+        else:
+            print(f"[!] File not found: {f}")
 
-    # 2. Build Reference Indices
-    # strict_prompts: Set for O(1) exact match lookup
-    # label_map: Dict mapping labels to list of prompts for similarity check
-    strict_prompts = set()
-    label_map = {}
-
-    print(f"[*] Building reference index from {len(args.refs)} files...")
-    for path in args.refs:
-        with open(path, 'r', encoding='utf-8') as f:
-            for line in f:
-                try:
-                    data = json.loads(line)
-                    p, l = data.get('prompt'), data.get('label')
-                    if p:
-                        strict_prompts.add(p)
-                        if l:
-                            if l not in label_map:
-                                label_map[l] = []
-                            label_map[l].append(p)
-                except (json.JSONDecodeError, KeyError):
-                    continue
-
-    # 3. Load Target Dataset
-    dataset = load_dataset("json", data_files=args.target, split="train")
-
-    # 4. Map Function with Combined Logic
-    def check_duplicate(example):
-        prompt = example.get('prompt', "")
-        label = example.get('label')
-
-        # Rule 1: Strict prompt matching
-        if prompt in strict_prompts:
-            example['is_dup'] = True
-            return example
-
-        # Rule 2: Label match + Word overlap > 50%
-        if label in label_map:
-            # Check against all prompts that share the same label
-            for ref_prompt in label_map[label]:
-                if calculate_word_overlap(prompt, ref_prompt) > args.threshold:
-                    example['is_dup'] = True
-                    return example
-
-        example['is_dup'] = False
-        return example
-
-    # ------ Processing and IO --------
-    print(f"[*] Processing dataset using {args.proc} cores...")
-    processed_ds = dataset.map(check_duplicate, num_proc=args.proc)
-
-    # Split dataset based on the helper column
-    cleaned_ds = processed_ds.filter(lambda x: not x['is_dup'], num_proc=args.proc)
-    removed_ds = processed_ds.filter(lambda x: x['is_dup'], num_proc=args.proc)
-
-    # Export to JSONL (Linux principle: use plain text)
-    cleaned_ds.remove_columns(['is_dup']).to_json(cleaned_path, force_ascii=False)
-    removed_ds.remove_columns(['is_dup']).to_json(removed_path, force_ascii=False)
-
-    print("-" * 30)
-    print(f"Success!")
-    print(f"Cleaned: {cleaned_path} ({len(cleaned_ds)} samples)")
-    print(f"Removed: {removed_path} ({len(removed_ds)} samples)")
-    print("-" * 30)
+    print("\n[✔] All tasks completed.")
 
 if __name__ == "__main__":
     main()
-
-"""
-python dedup.py target.jsonl ref.jsonl --threshold 0.6 --proc 16
-"""
