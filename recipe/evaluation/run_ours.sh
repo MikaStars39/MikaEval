@@ -13,20 +13,21 @@ export PYTHONFAULTHANDLER=1
 export CUDA_DEVICE_MAX_CONNECTIONS=1
 
 PROJECT_DIR=/mnt/llm-train/users/explore-train/qingyu/slime
+ORIGINAL_PATH=/mnt/llm-train/users/explore-train/qingyu/ckpt/20260131_070627_self_distillation/iter_0000039
 
 PYTHONPATH=/root/Megatron-LM python \
     ${PROJECT_DIR}/tools/convert_torch_dist_to_hf.py \
-    --input-dir /mnt/llm-train/users/explore-train/qingyu/ckpt/20260131_070627_self_distillation/iter_0000015 \
-    --output-dir /mnt/llm-train/users/explore-train/qingyu/ckpt/20260131_070627_self_distillation/iter_0000015_hf \
+    --input-dir $ORIGINAL_PATH \
+    --output-dir ${ORIGINAL_PATH}_hf \
     --origin-hf-dir /mnt/llm-train/users/explore-train/wangzhenfang8/hf_outputs/40b/sft-postrain-exp-v5-baselong-e2_lr5e-5_minlr5e-6/13638/ \
     --vocab-size 151936 \
     --chunk-size 10000000000
 
 # MODEL_PATH="/mnt/llm-train/users/explore-train/qingyu/ckpt/20260131_052150_self_distillation/iter_0000031_hf"
-MODEL_PATH="/mnt/llm-train/users/explore-train/qingyu/ckpt/20260131_070627_self_distillation/iter_0000015_hf"
+MODEL_PATH=${ORIGINAL_PATH}_hf
 CACHE_DIR="/mnt/llm-train/users/explore-train/qingyu/.cache"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-OUTPUT_DIR="/mnt/llm-train/users/explore-train/qingyu/data/eval_outputs/${TIMESTAMP}_intellect_iter_0000015"
+OUTPUT_DIR="/mnt/llm-train/users/explore-train/qingyu/data/eval_outputs/${TIMESTAMP}_intellect_iter_0000039"
 
 # Step 1: Prepare data (load benchmarks and apply chat template)
 python /mnt/llm-train/users/explore-train/qingyu/MikaEval/recipe/evaluation/prepare_data.py \
@@ -44,12 +45,10 @@ python /mnt/llm-train/users/explore-train/qingyu/MikaEval/recipe/evaluation/infe
     --model "$MODEL_PATH" \
     --tp-size 1 \
     --dp-size 8 \
-    --temperature 0.7 \
-    --top-p 0.8 \
+    --temperature 1 \
+    --top-p 1 \
     --max-tokens 32768 \
     --resume
-    
-OUTPUT_DIR="/mnt/llm-train/users/explore-train/qingyu/data/eval_outputs/20260131_065729_8b_opt_sft"
 
 # Step 3: Evaluate and calculate metrics
 python /mnt/llm-train/users/explore-train/qingyu/MikaEval/recipe/evaluation/evaluate.py \
