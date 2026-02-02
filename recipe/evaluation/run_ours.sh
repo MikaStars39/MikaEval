@@ -13,7 +13,7 @@ export PYTHONFAULTHANDLER=1
 export CUDA_DEVICE_MAX_CONNECTIONS=1
 
 PROJECT_DIR=/mnt/llm-train/users/explore-train/qingyu/slime
-ORIGINAL_PATH=/mnt/llm-train/users/explore-train/qingyu/ckpt/20260131_070627_self_distillation/iter_0000039
+ORIGINAL_PATH=/mnt/llm-train/users/explore-train/qingyu/ckpt/20260201_225642_self_distillation_lr_1e5/iter_0000063
 
 PYTHONPATH=/root/Megatron-LM python \
     ${PROJECT_DIR}/tools/convert_torch_dist_to_hf.py \
@@ -27,7 +27,7 @@ PYTHONPATH=/root/Megatron-LM python \
 MODEL_PATH=${ORIGINAL_PATH}_hf
 CACHE_DIR="/mnt/llm-train/users/explore-train/qingyu/.cache"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-OUTPUT_DIR="/mnt/llm-train/users/explore-train/qingyu/data/eval_outputs/${TIMESTAMP}_intellect_iter_0000039"
+OUTPUT_DIR="/mnt/llm-train/users/explore-train/qingyu/data/eval_outputs/${TIMESTAMP}_ours_iter_0000063"
 
 # Step 1: Prepare data (load benchmarks and apply chat template)
 python /mnt/llm-train/users/explore-train/qingyu/MikaEval/recipe/evaluation/prepare_data.py \

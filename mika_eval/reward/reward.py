@@ -23,7 +23,7 @@ def judge_router(
         #     'pass': prompt_level_pass_flag
         # }
         #
-        return if_judge(response, label, **kwargs)
+        return if_judge(response, **kwargs)
     elif "gpqa" in source.lower():
         return gpqa_judge(response, label, **kwargs)
     else:

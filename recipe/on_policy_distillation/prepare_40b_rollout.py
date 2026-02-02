@@ -5,7 +5,7 @@ import os
 from transformers import AutoTokenizer
 
 # ------ Logic --------
-def prepare_data(input_file, output_file, tokenizer_name):
+def prepare_data(input_file, output_file, k, tokenizer_name):
     """
     Wraps the 'prompt' field and adds explicit formatting instructions.
     """
@@ -37,15 +37,20 @@ def prepare_data(input_file, output_file, tokenizer_name):
             # replace <think> to </think>
             data['prompt'] = data['prompt'].replace('<think>', '</think>')
 
-            f_out.write(json.dumps(data, ensure_ascii=False) + '\n')
+            data_id = data["id"][:-1]
+
+            for index in range(int(k)):
+                data["id"] = f"{data_id}{str(index)}"
+                f_out.write(json.dumps(data, ensure_ascii=False) + '\n')
 
 # ------ CLI --------
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Pre-process: Wrap prompts with tag instructions.")
     parser.add_argument("--input", required=True)
     parser.add_argument("--output", required=True)
+    parser.add_argument("--k", required=True)
     parser.add_argument("--tokenizer", required=True)
     args = parser.parse_args()
     
-    prepare_data(args.input, args.output, args.tokenizer)
-    print(f"[Pre-process] Done. Inference file ready: {args.output}")
+    prepare_data(args.input, args.output, args.k, args.tokenizer)
+    print(f"[Prepare 40B Rollout] Done. Rollout file ready: {args.output}")

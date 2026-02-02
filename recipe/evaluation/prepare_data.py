@@ -11,11 +11,14 @@ import argparse
 import json
 import logging
 import os
+
+import mika_eval.tasks as tasks
+
 from pathlib import Path
 from tqdm import tqdm
 from transformers import AutoTokenizer
 
-from mika_eval.tasks.base import DATASETS, load_dataset_from_hf, get_question_text, get_answer_text
+from mika_eval.tasks import DATASETS
 from mika_eval.utils.template import PROMPT_TEMPLATES, SYSTEM_PROMPT_TEMPLATES
 
 
@@ -25,24 +28,9 @@ def prepare_dataset(
     k: int,
     f_out,
 ):
-    """Load dataset from HuggingFace and write k copies per sample for pass@k."""
-    dataset = load_dataset_from_hf(dataset_name, cache_dir)
-    
-    for idx, row in enumerate(tqdm(dataset, desc=f"Loading {dataset_name}")):
-        question = get_question_text(row)
-        answer = get_answer_text(row)
-
-        for sample_idx in range(k):
-            record = {
-                "id": f"{dataset_name}_{idx}_{sample_idx}",
-                "question_id": f"{dataset_name}_{idx}",
-                "source": dataset_name,
-                "prompt": question,
-                "sample_index": sample_idx,
-                "need_llm_extract": DATASETS[dataset_name].get("need_llm_extract", False),
-                "label": answer,
-            }
-            f_out.write(json.dumps(record, ensure_ascii=False) + "\n")
+    func_name = DATASETS[dataset_name]["process_func"]
+    func = getattr(tasks, func_name)
+    func(dataset_name, cache_dir, k, f_out)
 
 
 def apply_chat_template(

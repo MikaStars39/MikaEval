@@ -10,7 +10,9 @@ export TRANSFORMERS_OFFLINE=1
 export HF_DATASETS_OFFLINE=1
 export NCCL_DEBUG=INFO
 
-MODEL_PATH="/jpfs/zhangtianyi3/Nomerge/hf_outputs/tiny-model-exp/sft-postrain-exp-v5-baselong-e2_lr5e-5_minlr5e-6/13638"
+export NLTK_DATA="/mnt/llm-train/users/explore-train/qingyu/.cache"
+
+MODEL_PATH=/mnt/llm-train/users/explore-train/qingyu/.cache/Qwen3-4B-Instruct-2507
 CACHE_DIR="/mnt/llm-train/users/explore-train/qingyu/.cache"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 OUTPUT_DIR="/mnt/llm-train/users/explore-train/qingyu/data/eval_outputs/${TIMESTAMP}_ifeval"
@@ -21,8 +23,8 @@ python /mnt/llm-train/users/explore-train/qingyu/MikaEval/recipe/evaluation/prep
     --cache-dir "$CACHE_DIR" \
     --out-dir "$OUTPUT_DIR" \
     --model "$MODEL_PATH" \
-    --prompt-format "lighteval" \
-    --system-prompt "You are JoyAI, a large language model trained by JD (京东). Answer as concisely as possible."
+    --prompt-format "blank"
+    # --system-prompt "You are JoyAI, a large language model trained by JD (京东). Answer as concisely as possible."
 
 # Step 2: Run batch inference
 python /mnt/llm-train/users/explore-train/qingyu/MikaEval/recipe/evaluation/inference.py \
