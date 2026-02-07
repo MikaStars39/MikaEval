@@ -36,8 +36,8 @@ class APIConfig:
     api_key: str
     base_url: str
     model: str
-    timeout: int = 60
-    max_retries: int = 5
+    timeout: int = 6000
+    max_retries: int = 500
 
 # ------------------------- Async HTTP Client ------------------------
 

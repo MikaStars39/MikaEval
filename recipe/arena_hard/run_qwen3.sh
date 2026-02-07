@@ -82,4 +82,4 @@ function aggregate_results() {
         $STYLE_ARGS
 }
 
-api_judge
+aggregate_results

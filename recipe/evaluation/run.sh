@@ -6,11 +6,11 @@ OUTPUT_DIR="/mnt/llm-train/users/explore-train/qingyu/data/eval_outputs/${TIMEST
 
 # Step 1: Prepare data (load benchmarks and apply chat template)
 python /mnt/llm-train/users/explore-train/qingyu/slimulation/recipe/evaluation/prepare_data.py \
-    --dataset "aime2024@8,aime2025@8,math500@4,gpqa_diamond@4" \
+    --dataset "ifeval@1" \
     --cache-dir "$CACHE_DIR" \
     --out-dir "$OUTPUT_DIR" \
     --model "$MODEL_PATH" \
-    --prompt-format "lighteval"
+    --prompt-format "blank"
 
 # Step 2: Run batch inference
 python /mnt/llm-train/users/explore-train/qingyu/slimulation/recipe/evaluation/inference.py \
@@ -29,10 +29,10 @@ python /mnt/llm-train/users/explore-train/qingyu/slimulation/slimulation/backend
     --output "$OUTPUT_DIR/results.jsonl" \
     --model "xxxx" \
     --api-key "xxxxxxxxx" \
-    --base-url "http://6.30.3.162:32607/v1" \
+    --base-url "http://6.30.3.169:30010/v1" \
     --temperature 0.6 \
     --top-p 1 \
-    --concurrency 1024 \
+    --concurrency 512 \
     --max-tokens 32768
 
 # Step 3: Evaluate and calculate metrics

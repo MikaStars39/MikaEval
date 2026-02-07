@@ -1,8 +1,8 @@
 #!/bin/bash
 
 OUTPUT_DIR="/mnt/llm-train/users/explore-train/qingyu/data/arena_hard"
-MODEL_NAME="sft-16k-v2"  # Set your model name here
-MODEL_PATH="/mnt/llm-train/users/explore-train/qingyu/ckpt/sft-16k-v2"
+MODEL_NAME="dpo-v4"  # Set your model name here
+MODEL_PATH="/mnt/llm-train/users/explore-train/qingyu/ckpt/1315"
 BASELINE_MODEL="o3-mini-2025-01-31"
 JUDGE_MODEL="gpt-4.1"
 JUDGE_DIR="$OUTPUT_DIR/judgments/$JUDGE_MODEL"
@@ -69,6 +69,7 @@ function api_judge() {
         --score-output-dir "$OUTPUT_DIR" \
         --baseline-model "$BASELINE_MODEL" \
         --arena-hard-config "$ARENA_HARD_CONFIG" \
+        --resume \
         $STYLE_ARGS
 }
 
@@ -82,4 +83,8 @@ function aggregate_results() {
         $STYLE_ARGS
 }
 
+preprocess
+inference
+postprocess
 api_judge
+aggregate_results

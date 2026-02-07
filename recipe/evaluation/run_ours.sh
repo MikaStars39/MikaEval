@@ -25,18 +25,19 @@ PYTHONPATH=/root/Megatron-LM python \
 
 # MODEL_PATH="/mnt/llm-train/users/explore-train/qingyu/ckpt/20260131_052150_self_distillation/iter_0000031_hf"
 MODEL_PATH=${ORIGINAL_PATH}_hf
-MODEL_PATH=/mnt/llm-train/users/explore-train/qingyu/ckpt/sft-16k-v2
+MODEL_PATH=/mnt/llm-train/users/explore-train/wangxiran.6/hf-output/tiny-model-exp/sft-128k-last-256-1e-4-min1e-5/9498
 CACHE_DIR="/mnt/llm-train/users/explore-train/qingyu/.cache"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-OUTPUT_DIR="/mnt/llm-train/users/explore-train/qingyu/data/eval_outputs/${TIMESTAMP}_12524"
+OUTPUT_DIR="/mnt/llm-train/users/explore-train/qingyu/data/eval_outputs/${TIMESTAMP}_9498"
 
 # Step 1: Prepare data (load benchmarks and apply chat template)
+# aime2024@8,aime2025@8,math500@4,gpqa_diamond@8
 python /mnt/llm-train/users/explore-train/qingyu/slimulation/recipe/evaluation/prepare_data.py \
-    --dataset "mmlu@1,mmlu_pro@8" \
+    --dataset "ifeval@1" \
     --cache-dir "$CACHE_DIR" \
     --out-dir "$OUTPUT_DIR" \
     --model "$MODEL_PATH" \
-    --prompt-format "lighteval" \
+    --prompt-format "blank" \
     --system-prompt "You are JoyAI, a large language model trained by JD (京东). Answer as concisely as possible."
 
 # Step 2: Run batch inference

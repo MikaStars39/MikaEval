@@ -6,6 +6,8 @@ def if_judge(
     response: str,
     **kwargs
 ):
+    if response is None:
+        response = ""
     instructions = kwargs['instruction_id_list']
     kwargs_list = kwargs['kwargs']
 
